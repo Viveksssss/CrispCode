@@ -1,0 +1,12 @@
+.venv/
+venv/
+
+.env
+.so
+.pyd
+dist/
+.egg
+
+.vscode/
+*.key
+*.pem
