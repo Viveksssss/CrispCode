@@ -1,0 +1,4 @@
+[console_scripts]
+crisp = crispcode.cli.main:main
+crisp-core = crispcode.core.app:run
+crisp-tui = crispcode.tui:main

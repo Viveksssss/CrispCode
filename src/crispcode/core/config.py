@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import os
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+from dotenv import load_dotenv
+
+_DEFAULT_HOST = "127.0.0.1"
+_DEFAULT_PORT = 7437
+_DEFAULT_LOG_LEVEL = "INFO"
+_DEFAULT_LOG_FILE = "~/.crispcode/logs/core.log"
+_DEFAULT_LOG_FORMAT = "text"
+_DEFAULT_CONFIG_PATH = "~/.crispcode/config.toml"
+
+
+@dataclass
+class LoggingConfig:
+    level: str = _DEFAULT_LOG_LEVEL
+    file: str = _DEFAULT_LOG_FILE
+    format: str = _DEFAULT_LOG_FORMAT  # "text" / "json"
+
+
+@dataclass
+class CrispConfig:
+    host: str = _DEFAULT_HOST
+    port: int = _DEFAULT_PORT
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+
+
+def get_config() -> CrispConfig:
+    # 1. 创建默认配置实例
+    config = CrispConfig()
+
+    # 2. 加载 .env 文件（不覆盖已有系统环境变量）
+    load_dotenv(".env", override=False)
+
+    # 3. 确定配置文件路径（环境变量 or 默认）
+    config_path = Path(
+        os.environ.get("CRISP_CONFIG", _DEFAULT_CONFIG_PATH)
+    ).expanduser()
+
+    # 4. 如果配置文件存在，解析并应用
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            raise SystemExit(f"Config parse error({config_path}):{e}")
+        _apply_toml(config, data)
+
+    # 5. 应用环境变量（最高优先级）
+    _apply_env(config)
+    return config
+
+
+def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
+    unknown = set(data.keys()) - {"core", "logging"}
+    if unknown:
+        raise SystemExit(
+            f"Unknown top-level config keys:{', '.join(sorted(unknown))}\nNow only support core,logging"
+        )
+    if "core" in data:
+        core = data["core"]
+        if not isinstance(core, dict):
+            raise SystemExit("Config error: [core] must be a table")
+        if "host" in core:
+            val = core["host"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: core.host must be a string")
+            config.host = val
+        if "port" in core:
+            val = core["port"]
+            if not isinstance(val, int):
+                raise SystemExit("Config error: core.port must be an int")
+            config.port = val
+    if "logging" in data:
+        log = data["logging"]
+        if not isinstance(log, dict):
+            raise SystemExit("Config error: [logging] must be a table")
+        unknown_log: set[str] = set(log.keys()) - {"level", "file", "format"}
+        if unknown_log:
+            raise SystemExit(
+                f"Unknown [logging] keys :{', '.join(sorted(unknown_log))}"
+            )
+        for key in ("level", "file", "format"):
+            if key in log:
+                val = log[key]
+                if not isinstance(val, str):
+                    raise SystemExit(f"Config error: logging.{key} must be a string")
+                setattr(config.logging, key, val)
+
+
+def _apply_env(config: CrispConfig) -> None:
+    host = os.environ.get("CRISP_HOST")
+    if host is not None:
+        config.host = host
+
+    port_str = os.environ.get("CRISP_PORT")
+    if port_str is not None:
+        try:
+            config.port = int(port_str)
+        except ValueError:
+            raise SystemExit(
+                f"Config error: CRISP_PORT must be an integer, got: {port_str!r}"
+            )
+
+    log_level = os.environ.get("CRISP_LOG_LEVEL")
+    if log_level is not None:
+        config.logging.level = log_level
+
+    log_file = os.environ.get("CRISP_LOG_FILE")
+    if log_file is not None:
+        config.logging.file = log_file
+
+    log_format = os.environ.get("CRISP_LOG_FORMAT")
+    if log_format is not None:
+        config.logging.format = log_format

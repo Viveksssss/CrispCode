@@ -5,12 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "dotenv>=0.9.9",
     "pydantic>=2.0",
-    "python-dotenv>=1.0"
+    "python-dotenv>=1.0",
 ]
 
 
 [project.scripts]
-code        = "crispcode.main:main"
-code-core   = "crispcode.core:main"
-code-tui    = "crispcode.tui:main"
+crisp        = "crispcode.cli.main:main"
+crisp-core   = "crispcode.core.app:run"
+crisp-tui    = "crispcode.tui:main"
