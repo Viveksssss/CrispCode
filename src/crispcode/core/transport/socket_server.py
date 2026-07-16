@@ -4,7 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 from pydantic import BaseModel, ValidationError
-from crispcode.core.bus.envelop import *
+from crispcode.core.bus.envelope import *
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,7 @@ import time
 import crispcode
 
 from crispcode.core.bus.commands import PongResult
-from crispcode.core.bus.envelop import JsonRpcError, JsonRpcSuccess
+from crispcode.core.bus.envelope import JsonRpcError, JsonRpcSuccess
 from crispcode.core.config import CrispConfig
 
 
