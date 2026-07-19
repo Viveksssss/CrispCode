@@ -34,7 +34,9 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "pytest>=8.0",
-    "pytest-asyncio>0.23" 
+    "pytest-asyncio>0.23",
+    "anthropic>=0.25",
+    "openai"
 ]
 
 # ---- Ruff：统一代码风格 ----
