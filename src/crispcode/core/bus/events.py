@@ -12,7 +12,7 @@ class CoreStartedEvent(BaseModel):
 
 class RunStartedEvent(BaseModel):
     type: Literal["run.started"] = "run.started"
-    run_id = str
+    run_id: str
     goal: str
     ts: str
 
@@ -34,11 +34,9 @@ class StepStartedEvent(BaseModel):
 
 
 class StepFinishedEvent(BaseModel):
-    type: Literal["step.finished"] = "step.finished"
+    type: Literal["step.stated"] = "step.finished"
     run_id: str
-    tool_use_id: str
-    tool_name: str
-    params: dict[str, Any]
+    step: int
     ts: str
 
 

@@ -19,7 +19,7 @@ class EventWriter:
 
     async def __aenter__(self) -> EventWriter:
         """打开事件文件(追加模式),供async with使用"""
-        self._path.parent.mkdir(parent=True, exist_ok=True)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         self._file = open(self._path, "a", encoding="utf-8")
         return self
 

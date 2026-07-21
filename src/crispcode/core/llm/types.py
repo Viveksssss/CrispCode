@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from enum import Enum
 
 
 @dataclass
@@ -23,3 +24,9 @@ class LlmResponse:
     tool_calls: list[ToolCallBlock] = field(default=list)
     text: str = ""
     usage: UsageState | None = None
+
+
+class ModelProvider(Enum):
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+    UNKNOWN = "unknown"

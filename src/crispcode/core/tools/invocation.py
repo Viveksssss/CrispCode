@@ -44,7 +44,6 @@ async def _fail(
     return ToolResult(content=error_message, is_error=True, error_type=error_type)
 
 
-# TODO:
 async def invoke_tool(
     registry: ToolRegistry,
     tool_call: ToolCallBlock,

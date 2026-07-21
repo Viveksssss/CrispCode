@@ -44,5 +44,3 @@ def make_error(
     return JsonRpcError(
         id=id, error=JsonRpcErrorObject(code=code, message=message, data=data)
     )
-
-

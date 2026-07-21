@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Protocol, Any
 
-from anthropic import Anthropic, AsyncStream
+from anthropic import AsyncAnthropic, AsyncStream
 from anthropic.types import Message, Usage
 import openai  # 添加 openai 依赖
 
+from crispcode.core.llm.types import ModelProvider
 from crispcode.core.events.bus import EventBus
 from crispcode.core.llm.types import LlmResponse, ToolCallBlock, UsageState
 from crispcode.core.bus.events import (
@@ -19,15 +20,7 @@ from crispcode.core.bus.events import (
 )
 from crispcode.core.events.bus import EventBus
 
-from .types import ModelProvider
 from .formatters import get_formatter
-
-
-class ModelProvider(Enum):
-    ANTHROPIC = "anthropic"
-    OPENAI = "openai"
-    UNKNOWN = "unknown"
-
 
 _SYSTEM_PROMPT = (
     "You are a helpful AI assistant. "
@@ -59,9 +52,7 @@ class AnthropicProvider:
             if not api_key:
                 raise SystemExit("ANTHROPIC_API_KEY is not setted")
             base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
-            self._client: Any = Anthropic.AsyncAnthropic(
-                api_key=api_key, base_url=base_url
-            )
+            self._client: Any = AsyncAnthropic(api_key=api_key, base_url=base_url)
 
         else:
             self._client = client
@@ -85,7 +76,7 @@ class AnthropicProvider:
             {
                 "type": "text",
                 "text": _SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
+                # "cache_control": {"type": "ephemeral"},
             }
         ]
 
@@ -93,7 +84,7 @@ class AnthropicProvider:
 
         if tools:
             last = dict(tools[-1])
-            last["cache_control"] = {"type": "ephemeral"}
+            # last["cache_control"] = {"type": "ephemeral"}
             tools = tools[:-1] + [last]
 
         kwargs: dict[str, object] = {
@@ -107,6 +98,16 @@ class AnthropicProvider:
             kwargs["tools"] = tools
 
         text_parts: list[str] = []
+
+        import json
+
+        print("=" * 50)
+        print("Request to:", self._client.base_url)
+        print("Model:", self._model)
+        print("System:", json.dumps(system, indent=2))
+        print("Messages:", json.dumps(messages, indent=2)[:500])
+        print("Tools:", json.dumps(tools, indent=2) if tools else "None")
+        print("=" * 50)
 
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:

@@ -10,7 +10,7 @@ class EventBus:
     def __init__(self) -> None:
         self._subscribers: list[EventHandler] = []
 
-    def subscribe(self, handler, EventHandler) -> None:
+    def subscribe(self, handler: EventHandler) -> None:
         """注册一个事件处理函数"""
         self._subscribers.append(handler)
 

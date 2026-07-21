@@ -10,3 +10,5 @@ dist/
 .vscode/
 *.key
 *.pem
+
+**/*pycache*/*

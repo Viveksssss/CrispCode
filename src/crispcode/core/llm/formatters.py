@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 import json
 from enum import Enum
-from crispcode.core.llm.provider import ModelProvider
+from .types import ModelProvider
 
 
 class MessageFormatter(Protocol):

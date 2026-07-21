@@ -14,7 +14,7 @@ _DEFAULT_LOG_FILE = "~/.crispcode/logs/core.log"
 _DEFAULT_LOG_FORMAT = "text"
 _DEFAULT_CONFIG_PATH = "~/.crispcode/config.toml"
 _DEFAULT_MAX_STEPS = 20
-_DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_MODEL = "mimo-v2.5-pro"
 
 
 @dataclass

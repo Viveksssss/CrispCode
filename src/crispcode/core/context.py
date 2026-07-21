@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-from collections.abc import ABC, abstractmethod
+from abc import ABC, abstractmethod
 from enum import Enum
 from crispcode.core.llm.formatters import get_formatter, MessageFormatter, ModelProvider
 
@@ -15,7 +15,7 @@ class ExecutionContext:
     provider: ModelProvider = ModelProvider.ANTHROPIC  # 新增
     messages: list[dict[str, Any]] = field(default_factory=list)
     step: int = 0
-    statue: str = "running"  # "running" | "success" | "failed"
+    status: str = "running"  # "running" | "success" | "failed"
     reason: str | None = None
 
     def __post_init__(self) -> None:
