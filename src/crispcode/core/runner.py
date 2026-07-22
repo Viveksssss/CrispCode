@@ -12,7 +12,7 @@ from crispcode.core.events.bus import EventBus, EventHandler
 from crispcode.core.events.writer import EventWriter
 from crispcode.core.llm.provider import AnthropicProvider, LLMProvider
 from crispcode.core.loop import AgentLoop
-from crispcode.core.runs import RUNS_DIR, new_run_id
+from crispcode.core.runs import RUNS_DIR, new_runs_id
 from crispcode.core.tools.builtin.read_file import ReadFileTool
 from crispcode.core.tools.registry import ToolRegistry
 
@@ -28,17 +28,17 @@ class AgentRunner:
         *,
         provider: LLMProvider | None = None,
         extra_handlers: list[EventHandler] | None = None,
-        run_dir: Path | None = None,
+        runs_dir: Path | None = None,
     ) -> None:
         self._config = config
         self._provider = provider
         self._extra_handler = extra_handlers or []
-        self._run_dir = run_dir or RUNS_DIR
+        self._runs_dir = runs_dir or RUNS_DIR
 
     async def run(self, goal: str) -> None:
-        run_id = new_run_id()
-        run_path = self._run_dir / run_id
-        run_path.mkdir(parents=True, exist_ok=True)
+        runs_id = new_runs_id()
+        runs_path = self._runs_dir / runs_id
+        runs_path.mkdir(parents=True, exist_ok=True)
 
         bus = EventBus()
         for h in self._extra_handler:
@@ -50,16 +50,16 @@ class AgentRunner:
         loop = AgentLoop(provider, registry, bus)
 
         context = ExecutionContext(
-            run_id,
+            runs_id,
             goal,
             max_steps=self._config.agent.max_steps,
         )
 
-        async with EventWriter(run_path / "events.jsonl") as writer:
+        async with EventWriter(runs_path / "events.jsonl") as writer:
             writer.subscribe(bus)
             await bus.publish(
                 RunStartedEvent(
-                    run_id=run_id,
+                    runs_id=runs_id,
                     goal=goal,
                     ts=_now(),
                 )
@@ -75,7 +75,7 @@ class AgentRunner:
 
             await bus.publish(
                 RunFinishedEvent(
-                    run_id=run_id,
+                    runs_id=runs_id,
                     status=context.status,
                     reason=context.reason,
                     steps=context.step,

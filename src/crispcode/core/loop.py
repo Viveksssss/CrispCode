@@ -11,7 +11,7 @@ from crispcode.core.llm.provider import (
     AnthropicProvider,
     OpenAIProvider,
 )
-
+import traceback
 from crispcode.core.llm.types import ModelProvider
 from crispcode.core.tools.invocation import invoke_tool
 from crispcode.core.tools.registry import ToolRegistry
@@ -33,7 +33,7 @@ class AgentLoop:
         while not context.is_done():
             context.step += 1
             await self._bus.publish(
-                StepStartedEvent(run_id=context.run_id, step=context.step, ts=_now())
+                StepStartedEvent(runs_id=context.runs_id, step=context.step, ts=_now())
             )
 
             try:
@@ -41,13 +41,15 @@ class AgentLoop:
                     messages=context.messages,
                     tool_schemas=self._registry.tool_schemas(),
                     bus=self._bus,
-                    run_id=context.run_id,
+                    runs_id=context.runs_id,
                 )
             except asyncio.CancelledError:
                 context.mark_failed("cancelled")
                 raise
-            except Exception:
+            except Exception as e:
+                traceback.print_exc()
                 context.mark_failed("llm_error")
+                print(f"{e}")
                 break
 
             blocks: list[dict[str, object]] = []
@@ -68,16 +70,21 @@ class AgentLoop:
             if response.stop_reason == "tool_use":
                 for tc in response.tool_calls:
                     result = await invoke_tool(
-                        self._registry, tc, self._bus, context.run_id
+                        self._registry, tc, self._bus, context.runs_id
                     )
                     context.add_tool_result(
                         tc.id, result.content, is_error=result.is_error
                     )
-            if response.stop_reason == "end_trun":
+
+            if response.stop_reason == "end_turn":
                 context.mark_success()
             elif context.step >= context.max_steps:
                 context.mark_failed("exceeded_max_steps")
+            else:
+                print("*" * 50)
+                print(response.stop_reason)
+                print("*" * 50)
 
             await self._bus.publish(
-                StepFinishedEvent(run_id=context.run_id, step=context.step, ts=_now())
+                StepFinishedEvent(runs_id=context.runs_id, step=context.step, ts=_now())
             )

@@ -1,0 +1,10 @@
+{"type":"run.started","runs_id":"20260721-14491784616571-1be4f8","goal":"你好啊","ts":"2026-07-21T14:49:31.912339+00:00"}
+{"type":"step.stated","runs_id":"20260721-14491784616571-1be4f8","step":1,"ts":"2026-07-21T14:49:31.912434+00:00"}
+{"type":"llm.model_selected","runs_id":"20260721-14491784616571-1be4f8","model":"mimo-v2.5-pro","strategy":"static","ts":"2026-07-21T14:49:31.912473+00:00"}
+{"type":"llm.token","runs_id":"20260721-14491784616571-1be4f8","token":"你好！👋","ts":"2026-07-21T14:49:33.986179+00:00"}
+{"type":"llm.token","runs_id":"20260721-14491784616571-1be4f8","token":" ","ts":"2026-07-21T14:49:34.035286+00:00"}
+{"type":"llm.token","runs_id":"20260721-14491784616571-1be4f8","token":"很高兴见到你","ts":"2026-07-21T14:49:34.092253+00:00"}
+{"type":"llm.token","runs_id":"20260721-14491784616571-1be4f8","token":"！有什么我可以帮助","ts":"2026-07-21T14:49:34.149915+00:00"}
+{"type":"llm.token","runs_id":"20260721-14491784616571-1be4f8","token":"你的吗？","ts":"2026-07-21T14:49:34.206547+00:00"}
+{"type":"llm.usage","runs_id":"20260721-14491784616571-1be4f8","input_tokens":4,"output_tokens":55,"cache_read_input_tokens":320,"cache_creation_input_tokens":0,"ts":"2026-07-21T14:49:34.325875+00:00"}
+{"type":"run.finished","runs_id":"20260721-14491784616571-1be4f8","status":"failed","reason":"llm_error","steps":1,"ts":"2026-07-21T14:49:34.325977+00:00"}

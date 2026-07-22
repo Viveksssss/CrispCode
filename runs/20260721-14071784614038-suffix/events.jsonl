@@ -1,3 +1,3 @@
-{"type":"run.started","run_id":"20260721-14071784614038-suffix","goal":"回复我","ts":"2026-07-21T14:07:18.938153+00:00"}
-{"type":"step.stated","run_id":"20260721-14071784614038-suffix","step":1,"ts":"2026-07-21T14:07:18.938227+00:00"}
-{"type":"llm.model_selected","run_id":"20260721-14071784614038-suffix","model":"claude-sonnet-4-6","strategy":"static","ts":"2026-07-21T14:07:18.938249+00:00"}
+{"type":"run.started","runs_id":"20260721-14071784614038-suffix","goal":"回复我","ts":"2026-07-21T14:07:18.938153+00:00"}
+{"type":"step.stated","runs_id":"20260721-14071784614038-suffix","step":1,"ts":"2026-07-21T14:07:18.938227+00:00"}
+{"type":"llm.model_selected","runs_id":"20260721-14071784614038-suffix","model":"claude-sonnet-4-6","strategy":"static","ts":"2026-07-21T14:07:18.938249+00:00"}

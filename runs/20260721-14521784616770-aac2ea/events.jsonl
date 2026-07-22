@@ -1,0 +1,10 @@
+{"type":"run.started","runs_id":"20260721-14521784616770-aac2ea","goal":"你好啊","ts":"2026-07-21T14:52:50.930200+00:00"}
+{"type":"step.stated","runs_id":"20260721-14521784616770-aac2ea","step":1,"ts":"2026-07-21T14:52:50.930297+00:00"}
+{"type":"llm.model_selected","runs_id":"20260721-14521784616770-aac2ea","model":"mimo-v2.5-pro","strategy":"static","ts":"2026-07-21T14:52:50.930327+00:00"}
+{"type":"llm.token","runs_id":"20260721-14521784616770-aac2ea","token":"你好！😊","ts":"2026-07-21T14:52:52.625573+00:00"}
+{"type":"llm.token","runs_id":"20260721-14521784616770-aac2ea","token":" 很高兴见到","ts":"2026-07-21T14:52:52.660715+00:00"}
+{"type":"llm.token","runs_id":"20260721-14521784616770-aac2ea","token":"你！有什么我可以","ts":"2026-07-21T14:52:52.709255+00:00"}
+{"type":"llm.token","runs_id":"20260721-14521784616770-aac2ea","token":"帮助","ts":"2026-07-21T14:52:52.748481+00:00"}
+{"type":"llm.token","runs_id":"20260721-14521784616770-aac2ea","token":"你的吗？","ts":"2026-07-21T14:52:52.794147+00:00"}
+{"type":"llm.usage","runs_id":"20260721-14521784616770-aac2ea","input_tokens":4,"output_tokens":37,"cache_read_input_tokens":320,"cache_creation_input_tokens":0,"ts":"2026-07-21T14:52:52.907251+00:00"}
+{"type":"run.finished","runs_id":"20260721-14521784616770-aac2ea","status":"failed","reason":"llm_error","steps":1,"ts":"2026-07-21T14:52:52.907766+00:00"}

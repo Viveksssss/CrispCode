@@ -12,14 +12,14 @@ class CoreStartedEvent(BaseModel):
 
 class RunStartedEvent(BaseModel):
     type: Literal["run.started"] = "run.started"
-    run_id: str
+    runs_id: str
     goal: str
     ts: str
 
 
 class RunFinishedEvent(BaseModel):
     type: Literal["run.finished"] = "run.finished"
-    run_id: str
+    runs_id: str
     status: str  # "success" / "failed"
     reason: str | None = None  # "exceeded_max_steps" / "cancelled" / "llm_error"
     steps: int
@@ -27,22 +27,22 @@ class RunFinishedEvent(BaseModel):
 
 
 class StepStartedEvent(BaseModel):
-    type: Literal["step.stated"] = "step.stated"
-    run_id: str
+    type: Literal["step.stated"] = "step.started"
+    runs_id: str
     step: int
     ts: str
 
 
 class StepFinishedEvent(BaseModel):
     type: Literal["step.stated"] = "step.finished"
-    run_id: str
+    runs_id: str
     step: int
     ts: str
 
 
 class ToolCallStartedEvent(BaseModel):
     type: Literal["tool.call_started"] = "tool.call_started"
-    run_id: str
+    runs_id: str
     tool_use_id: str
     tool_name: str
     params: dict[str, Any]
@@ -51,7 +51,7 @@ class ToolCallStartedEvent(BaseModel):
 
 class ToolCallFinishedEvent(BaseModel):
     type: Literal["tool.call_finished"] = "tool.call_finished"
-    run_id: str
+    runs_id: str
     tool_use_id: str
     tool_name: str
     elapsed_ms: int
@@ -60,7 +60,7 @@ class ToolCallFinishedEvent(BaseModel):
 
 class ToolCallFailedEvent(BaseModel):
     type: Literal["tool.call_failed"] = "tool.call_failed"
-    run_id: str
+    runs_id: str
     tool_use_id: str
     tool_name: str
     error_type: str  # "runtime_error" | "timeout" | "schema_error"
@@ -71,14 +71,14 @@ class ToolCallFailedEvent(BaseModel):
 
 class LlmTokenEvent(BaseModel):
     type: Literal["llm.token"] = "llm.token"
-    run_id: str
+    runs_id: str
     token: str
     ts: str
 
 
 class LlmUsageEvent(BaseModel):
     type: Literal["llm.usage"] = "llm.usage"
-    run_id: str
+    runs_id: str
     input_tokens: int
     output_tokens: int
     cache_read_input_tokens: int
@@ -88,7 +88,7 @@ class LlmUsageEvent(BaseModel):
 
 class LlmModelSelectedEvent(BaseModel):
     type: Literal["llm.model_selected"] = "llm.model_selected"
-    run_id: str
+    runs_id: str
     model: str
     strategy: str  # "static" | "rule_based" | "cost_budget"
     ts: str
@@ -96,7 +96,7 @@ class LlmModelSelectedEvent(BaseModel):
 
 class LogLineEvent(BaseModel):
     type: Literal["log.line"] = "log.line"
-    run_id: str
+    runs_id: str
     level: str  # "DEBUG" | "INFO" | "WARNING" | "ERROR"
     source: str
     message: str

@@ -24,7 +24,7 @@ def _now() -> str:
 
 async def _fail(
     bus: EventBus,
-    run_id: str,
+    runs_id: str,
     tool_call: ToolCallBlock,
     error_type: str,
     error_message: str,
@@ -33,11 +33,12 @@ async def _fail(
     """发布 ToolCallFailedEvent 并返回对应 ToolResult"""
     await bus.publish(
         ToolCallFailedEvent(
-            run_id=run_id,
+            runs_id=runs_id,
             tool_use_id=tool_call.id,
             tool_name=tool_call.name,
             error_type=error_type,
             error_message=error_message,
+            elapsed_ms=elapsed_ms,
             ts=_now(),
         )
     )
@@ -48,7 +49,7 @@ async def invoke_tool(
     registry: ToolRegistry,
     tool_call: ToolCallBlock,
     bus: EventBus,
-    run_id: str,
+    runs_id: str,
     timeout: float = _DEFAULT_TIMEOUT,
 ) -> ToolResult:
     """校验参数、限时调用工具、发布进度事件，返回 ToolResult（不抛异常）"""
@@ -56,7 +57,7 @@ async def invoke_tool(
     t0 = time.monotonic()
     await bus.publish(
         ToolCallStartedEvent(
-            run_id=run_id,
+            runs_id=runs_id,
             tool_use_id=tool_call.id,
             tool_name=tool_call.name,
             params=dict(tool_call.input),
@@ -71,7 +72,7 @@ async def invoke_tool(
     if tool is None:
         return await _fail(
             bus,
-            run_id,
+            runs_id,
             tool_call,
             "runtime_error",
             f"unknown tool: {tool_call.name}",
@@ -83,7 +84,7 @@ async def invoke_tool(
     if missing:
         return await _fail(
             bus,
-            run_id,
+            runs_id,
             tool_call,
             "schema_error",
             f"missing required parameters: {', '.join(missing)}",
@@ -98,7 +99,7 @@ async def invoke_tool(
         if result.is_error:
             return await _fail(
                 bus,
-                run_id,
+                runs_id,
                 tool_call,
                 result.error_type or "runtime_error",
                 result.content,
@@ -106,7 +107,7 @@ async def invoke_tool(
             )
         await bus.publish(
             ToolCallFinishedEvent(
-                run_id=run_id,
+                runs_id=runs_id,
                 tool_use_id=tool_call.id,
                 tool_name=tool_call.name,
                 elapsed_ms=ms,
@@ -117,7 +118,7 @@ async def invoke_tool(
     except TimeoutError:
         return await _fail(
             bus,
-            run_id,
+            runs_id,
             tool_call,
             "timeout",
             f"tool timed out after {timeout}s",
@@ -126,7 +127,7 @@ async def invoke_tool(
     except Exception as exc:
         return await _fail(
             bus,
-            run_id,
+            runs_id,
             tool_call,
             "runtime_error",
             str(exc),

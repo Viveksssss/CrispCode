@@ -19,6 +19,37 @@ from crispcode.core.bus.events import (
 from crispcode.core.config import CrispConfig
 from crispcode.core.runner import AgentRunner
 
+"""
+CLI (cmd_run)                Runner                    AgentLoop                  EventBus              StdoutPrinter
+    |                           |                          |                          |                      |
+    |---创建 StdoutPrinter------>|                          |                          |                      |
+    |---注册 handler------------>|                          |                          |                      |
+    |                           |---创建 EventBus--------->|                          |                      |
+    |                           |---注册 handler---------->|                          |                      |
+    |                           |---创建 AgentLoop-------->|                          |                      |
+    |                           |                          |                          |                      |
+    |                           |                          |---publish(RunStarted)---->|                      |
+    |                           |                          |                          |---handle(event)----->|
+    |                           |                          |                          |                      |---打印 "[run] xxx"
+    |                           |                          |                          |                      |
+    |                           |                          |---publish(StepStarted)--->|                      |
+    |                           |                          |                          |---handle(event)----->|
+    |                           |                          |                          |                      |---打印 "[step 1]"
+    |                           |                          |                          |                      |
+    |                           |                          |---publish(Token)--------->|                      |
+    |                           |                          |                          |---handle(event)----->|
+    |                           |                          |                          |                      |---实时打印 token
+    |                           |                          |                          |                      |
+    |                           |                          |---publish(StepFinished)-->|                      |
+    |                           |                          |                          |---handle(event)----->|
+    |                           |                          |                          |                      |---打印 "[step 1] done"
+    |                           |                          |                          |                      |
+    |                           |                          |---publish(RunFinished)--->|                      |
+    |                           |                          |                          |---handle(event)----->|
+    |                           |                          |                          |                      |---打印 "[run] success"
+
+"""
+
 
 class StdoutPrinter:
     def __init__(self) -> None:
@@ -33,7 +64,7 @@ class StdoutPrinter:
     async def handle(self, event: BaseModel) -> None:
         if isinstance(event, RunStartedEvent):
             self._run_start = time.monotonic()
-            print(f"[run] {event.run_id}")
+            print(f"[run] {event.runs_id}")
 
         elif isinstance(event, StepStartedEvent):
             self._ensure_newline()

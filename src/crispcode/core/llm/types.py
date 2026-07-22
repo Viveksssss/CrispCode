@@ -21,7 +21,7 @@ class ToolCallBlock:
 @dataclass
 class LlmResponse:
     stop_reason: str
-    tool_calls: list[ToolCallBlock] = field(default=list)
+    tool_calls: list[ToolCallBlock] = field(default_factory=list)
     text: str = ""
     usage: UsageState | None = None
 

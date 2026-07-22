@@ -9,7 +9,7 @@ from crispcode.core.llm.formatters import get_formatter, MessageFormatter, Model
 
 @dataclass
 class ExecutionContext:
-    run_id: str
+    runs_id: str
     goal: str
     max_steps: int
     provider: ModelProvider = ModelProvider.ANTHROPIC  # 新增
@@ -30,10 +30,39 @@ class ExecutionContext:
         formatted = self._formatter.format_assistant_message(content)
         self.messages.append(formatted)
 
+    # def add_tool_result(
+    #     self, tool_use_id: str, content: str, is_error: bool = False
+    # ) -> None:
+    #     """添加工具结果（自动适配格式）"""
+    #     block: dict[str, Any] = {
+    #         "type": "tool_result",
+    #         "tool_use_id": tool_use_id,
+    #         "content": content,
+    #     }
+
+    #     formatted = self._formatter.format_tool_result(tool_use_id, content, is_error)
+
+    #     if is_error:
+    #         block["is_error"] = True
+
+    #     # Anthropic 特殊处理：合并 tool_result 到最后的 user 消息
+    #     if self.provider == ModelProvider.ANTHROPIC:
+    #         last = self.messages[-1] if self.messages else None
+    #         if (
+    #             last is not None
+    #             and last["role"] == "user"
+    #             and isinstance(last.get("content"), list)
+    #             and last["content"]
+    #             and all(b.get("type") == "tool_result" for b in last["content"])
+    #         ):
+    #             last["content"].append(formatted["content"][0])
+    #             return
+
+    #     self.messages.append(formatted)
     def add_tool_result(
         self, tool_use_id: str, content: str, is_error: bool = False
     ) -> None:
-        """添加工具结果（自动适配格式）"""
+
         block: dict[str, Any] = {
             "type": "tool_result",
             "tool_use_id": tool_use_id,
@@ -41,13 +70,16 @@ class ExecutionContext:
         }
 
         formatted = self._formatter.format_tool_result(tool_use_id, content, is_error)
+        print(f"   - Formatted: {formatted}")
 
         if is_error:
             block["is_error"] = True
 
-        # Anthropic 特殊处理：合并 tool_result 到最后的 user 消息
+        # Anthropic 特殊处理
         if self.provider == ModelProvider.ANTHROPIC:
             last = self.messages[-1] if self.messages else None
+            print(f"   - Last message: {last}")
+
             if (
                 last is not None
                 and last["role"] == "user"
@@ -59,6 +91,7 @@ class ExecutionContext:
                 return
 
         self.messages.append(formatted)
+        print(f"   - Appended new message")
 
     def is_done(self) -> None:
         """返回True表示loop应该停止,状态不再是running"""

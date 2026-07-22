@@ -35,7 +35,7 @@ class LLMProvider(Protocol):
         messages: list[dict[str, object]],
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
-        run_id: str,
+        runs_id: str,
     ) -> LlmResponse: ...
 
 
@@ -64,11 +64,11 @@ class AnthropicProvider:
         messages: list[dict[str, object]],
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
-        run_id: str,
+        runs_id: str,
     ) -> LlmResponse:
         await bus.publish(
             LlmModelSelectedEvent(
-                run_id=run_id, model=self._model, strategy="static", ts=_now()
+                runs_id=runs_id, model=self._model, strategy="static", ts=_now()
             )
         )
 
@@ -111,7 +111,7 @@ class AnthropicProvider:
 
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
-                await bus.publish(LlmTokenEvent(run_id=run_id, token=text, ts=_now()))
+                await bus.publish(LlmTokenEvent(runs_id=runs_id, token=text, ts=_now()))
                 text_parts.append(text)
             final_message: Message = await stream.get_final_message()
 
@@ -121,7 +121,7 @@ class AnthropicProvider:
 
         await bus.publish(
             LlmUsageEvent(
-                run_id=run_id,
+                runs_id=runs_id,
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
                 cache_read_input_tokens=cache_read,
@@ -130,7 +130,7 @@ class AnthropicProvider:
             )
         )
 
-        tool_calls = list[ToolCallBlock] = []
+        tool_calls: list[ToolCallBlock] = []
         for block in final_message.content:
             if block.type == "tool_use":
                 tool_calls.append(
@@ -142,7 +142,7 @@ class AnthropicProvider:
             tool_calls=tool_calls,
             text="".join(text_parts),
             usage=UsageState(
-                input_tokens=usage.input_tokens,
+                input_token=usage.input_tokens,
                 output_token=usage.output_tokens,
                 cache_read_input_tokens=cache_read,
                 cache_creation_input_tokens=cache_create,
@@ -171,11 +171,11 @@ class OpenAIProvider:
         messages: list[dict[str, object]],
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
-        run_id: str,
+        runs_id: str,
     ) -> LlmResponse:
         await bus.publish(
             LlmModelSelectedEvent(
-                run_id=run_id, model=self._model, strategy="static", ts=_now()
+                runs_id=runs_id, model=self._model, strategy="static", ts=_now()
             )
         )
 
@@ -199,7 +199,7 @@ class OpenAIProvider:
                 if chunk.choices and chunk.choices[0].delta.content:
                     text = chunk.choices[0].delta.content
                     await bus.publish(
-                        LlmTokenEvent(run_id=run_id, token=text, ts=_now())
+                        LlmTokenEvent(runs_id=runs_id, token=text, ts=_now())
                     )
                     text_parts.append(text)
             final_message = await stream.get_final_message()
@@ -221,7 +221,7 @@ class OpenAIProvider:
 
         await bus.publish(
             LlmUsageEvent(
-                run_id=run_id,
+                runs_id=runs_id,
                 input_tokens=usage.prompt_tokens,
                 output_tokens=usage.completion_tokens,
                 cache_read_input_tokens=cache_read,

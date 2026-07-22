@@ -1,4 +1,4 @@
-{"type":"run.started","run_id":"20260721-14161784614563-suffix","goal":"回复我","ts":"2026-07-21T14:16:03.192367+00:00"}
-{"type":"step.stated","run_id":"20260721-14161784614563-suffix","step":1,"ts":"2026-07-21T14:16:03.192441+00:00"}
-{"type":"llm.model_selected","run_id":"20260721-14161784614563-suffix","model":"claude-sonnet-4-6","strategy":"static","ts":"2026-07-21T14:16:03.192464+00:00"}
-{"type":"run.finished","run_id":"20260721-14161784614563-suffix","status":"failed","reason":"llm_error","steps":1,"ts":"2026-07-21T14:16:03.282671+00:00"}
+{"type":"run.started","runs_id":"20260721-14161784614563-suffix","goal":"回复我","ts":"2026-07-21T14:16:03.192367+00:00"}
+{"type":"step.stated","runs_id":"20260721-14161784614563-suffix","step":1,"ts":"2026-07-21T14:16:03.192441+00:00"}
+{"type":"llm.model_selected","runs_id":"20260721-14161784614563-suffix","model":"claude-sonnet-4-6","strategy":"static","ts":"2026-07-21T14:16:03.192464+00:00"}
+{"type":"run.finished","runs_id":"20260721-14161784614563-suffix","status":"failed","reason":"llm_error","steps":1,"ts":"2026-07-21T14:16:03.282671+00:00"}
