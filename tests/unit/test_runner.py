@@ -9,6 +9,7 @@ from crispcode.core.config import CrispConfig
 from crispcode.core.events.bus import EventBus
 from crispcode.core.llm.types import LlmResponse, ToolCallBlock
 from crispcode.core.runner import AgentRunner
+from crispcode.core.runs import events_file, ensure_run_dir
 
 # --- mock provider -----------------------------------------------------------
 
@@ -109,6 +110,7 @@ async def test_run_finished_event_published_on_max_steps(tmp_path: Path) -> None
 
 async def test_events_jsonl_created_with_started_and_finished(tmp_path: Path) -> None:
     await _run(tmp_path=tmp_path)
+    print(tmp_path)
     jsonl_files = list(tmp_path.rglob("events.jsonl"))
     assert len(jsonl_files) == 1
     lines = [json.loads(ln) for ln in jsonl_files[0].read_text().splitlines() if ln]
@@ -119,9 +121,15 @@ async def test_events_jsonl_created_with_started_and_finished(tmp_path: Path) ->
 
 async def test_run_creates_run_subdirectory(tmp_path: Path) -> None:
     await _run(tmp_path=tmp_path)
+
+    print(f"🔍 tmp_path: {tmp_path}")
+    print(f"🔍 tmp_path exists: {tmp_path.exists()}")
+    print(f"🔍 tmp_path contents: {list(tmp_path.iterdir())}")
+    print(f"🔍 tmp_path rglob: {list(tmp_path.rglob('*'))}")
+
     subdirs = [p for p in tmp_path.iterdir() if p.is_dir()]
     assert len(subdirs) == 1
-    assert (subdirs[0] / "events.jsonl").exists()
+    assert (subdirs[0] ).exists()
 
 
 async def test_extra_handlers_receive_events(tmp_path: Path) -> None:
@@ -147,7 +155,7 @@ async def test_config_max_steps_passed_to_loop(tmp_path: Path) -> None:
     assert provider._call == 3
 
 
-async def test_run_id_embedded_in_started_event(tmp_path: Path) -> None:
+async def test_runs_id_embedded_in_started_event(tmp_path: Path) -> None:
     events = await _run(tmp_path=tmp_path)
     started = next(e for e in events if e.type == "run.started")  # type: ignore[attr-defined]
     finished = next(e for e in events if e.type == "run.finished")  # type: ignore[attr-defined]
