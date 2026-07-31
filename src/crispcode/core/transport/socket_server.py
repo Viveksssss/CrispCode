@@ -3,33 +3,50 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
+from contextvars import ContextVar
 from pydantic import BaseModel, ValidationError
 from crispcode.core.bus.envelope import *
+from crispcode.core.transport.ipc_broadcaster import IpcEventBroadcaster
 
 logger = logging.getLogger(__name__)
 
 
 type CommandHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 
+# 每个连接处理协程中，当前正在处理的 writer（供 handler 读取连接上下文）
+_writer_var: ContextVar[asyncio.StreamWriter] = ContextVar(
+    "_writer_var"
+)  # 类似线程局部变量的协程版本,每个协程之间存储的内容隔离.
+
+
+def get_connection_writer() -> asyncio.StreamWriter:
+    """返回当前 handler 调用所属连接的 StreamWriter"""
+    return _writer_var.get()
+
 
 _MAX_LINE_BYTES = 1 * 1024 * 1024
 
 
 class SocketServer:
-    def __init__(self, host: str, port: str) -> None:
+    def __init__(
+        self, host: str, port: str, broadcaster: IpcEventBroadcaster | None = None
+    ) -> None:
         self._host = host
         self._port = port
         self._handlers: dict[str, CommandHandler] = {}
         self._server: asyncio.AbstractServer | None = None
+        self._broadcaster = broadcaster
 
     def register(self, method: str, handler: CommandHandler) -> None:
+        """注册一个方法名对应的命令处理函数"""
         self._handlers[method] = handler
 
     async def start(self) -> str:
+        """启动 TCP 服务器；若端口已被占用则退出进程"""
         try:
             _r, w = await asyncio.open_connection(self._host, self._port)
             w.close()
-            await w.wait_closed
+            await w.wait_closed()
             raise SystemExit(f"core already running at {self._host}:{self._port}")
         except (ConnectionRefusedError, OSError):
             pass
@@ -44,6 +61,7 @@ class SocketServer:
         return f"{self._host}:{self._port}"
 
     async def stop(self) -> None:
+        """关闭服务器，最多等待 2 秒"""
         if self._server is None:
             return
 
@@ -53,11 +71,14 @@ class SocketServer:
     async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        """处理单个客户端连接，完成后关闭写流"""
         peer = writer.get_extra_info("peername", "<unknown>")
         logger.debug("client connected : %s", peer)
         try:
             await self._read_loop(reader, writer)
         finally:
+            if self._broadcaster is not None:
+                self._broadcaster.unsubscribe(writer)
             writer.close()
             try:
                 await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
@@ -70,6 +91,7 @@ class SocketServer:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        """持续读取换行分隔的 JSON 行并逐行分发处理"""
         while True:
             try:
                 line = await reader.readline()
@@ -85,6 +107,7 @@ class SocketServer:
             await self._handle_line(line, writer)
 
     async def _handle_line(self, line: bytes, writer: asyncio.StreamWriter) -> None:
+        """解析单行 JSON-RPC 请求并调用对应 handler，将结果或错误写回客户端"""
         try:
             raw: Any = json.loads(line)
         except json.JSONDecodeError as e:
@@ -107,6 +130,7 @@ class SocketServer:
             )
             return
 
+        _writer_var.set(writer)
         try:
             result = await handler(req.params)
         except ValidationError as e:
@@ -124,8 +148,10 @@ class SocketServer:
         result_data: Any = (
             result.model_dump() if isinstance(result, BaseModel) else result
         )
+
         await self._send(writer, JsonRpcSuccess(id=req.id, result=result_data))
 
     async def _send(self, writer: asyncio.StreamWriter, msg: BaseModel) -> None:
+        """将 pydantic 消息序列化为 JSON 行并写入流，随后刷新缓冲区"""
         writer.write(msg.model_dump_json().encode() + b"\n")
         await writer.drain()

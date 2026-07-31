@@ -12,7 +12,7 @@ from crispcode.core.events.bus import EventBus, EventHandler
 from crispcode.core.events.writer import EventWriter
 from crispcode.core.llm.provider import AnthropicProvider, LLMProvider
 from crispcode.core.loop import AgentLoop
-from crispcode.core.runs import RUNS_DIR, new_runs_id
+from crispcode.core.runs import RUNS_DIR, new_runs_id, ensure_run_dir, events_file
 from crispcode.core.tools.builtin.read_file import ReadFileTool
 from crispcode.core.tools.registry import ToolRegistry
 
@@ -26,21 +26,26 @@ class AgentRunner:
         self,
         config: CrispConfig,
         *,
+        bus: EventBus | None = None,
         provider: LLMProvider | None = None,
         extra_handlers: list[EventHandler] | None = None,
         runs_dir: Path | None = None,
     ) -> None:
         self._config = config
         self._provider = provider
+        self._bus = bus
         self._extra_handler = extra_handlers or []
         self._runs_dir = runs_dir or RUNS_DIR
 
-    async def run(self, goal: str) -> None:
-        runs_id = new_runs_id()
-        runs_path = self._runs_dir / runs_id
-        runs_path.mkdir(parents=True, exist_ok=True)
+    async def run(self, goal: str, *, runs_id: str | None = None) -> None:
+        runs_id = runs_id if runs_id else new_runs_id()
 
-        bus = EventBus()
+        # ✅ 使用 self._runs_dir 而不是全局函数
+        run_dir = ensure_run_dir(runs_dir=self._runs_dir, runs_id=runs_id)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        events_path = run_dir / "events.jsonl"
+
+        bus = self._bus if self._bus is not None else EventBus()
         for h in self._extra_handler:
             bus.subscribe(h)
 
@@ -55,7 +60,7 @@ class AgentRunner:
             max_steps=self._config.agent.max_steps,
         )
 
-        async with EventWriter(runs_path / "events.jsonl") as writer:
+        async with EventWriter(events_path) as writer:
             writer.subscribe(bus)
             await bus.publish(
                 RunStartedEvent(

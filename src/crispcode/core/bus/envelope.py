@@ -6,6 +6,11 @@ from crispcode.core.bus.commands import PingCommand, PongResult
 from crispcode.core.bus.events import CoreStartedEvent
 
 
+class EventPushEnvelope(BaseModel):
+    kind: Literal["event"] = "event"
+    event: dict[str, Any]  # Event.model_dump() 的序列化结果
+
+
 class JsonRpcRequest(BaseModel):
     jsonrpc: Literal["2.0"] = "2.0"
     id: str

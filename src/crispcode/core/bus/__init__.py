@@ -9,6 +9,7 @@ from crispcode.core.bus.envelope import (
     JsonRpcErrorObject,
     JsonRpcRequest,
     JsonRpcSuccess,
+    EventPushEnvelope,
     make_error,
 )
 from crispcode.core.bus.events import (
@@ -45,6 +46,7 @@ __all__ = [
     "INTERNAL_ERROR",
     "INVALID_PARAMS",
     "INVALID_REQUEST",
+    "EventPushEnvelope'",
     "JsonRpcError",
     "JsonRpcErrorObject",
     "JsonRpcRequest",

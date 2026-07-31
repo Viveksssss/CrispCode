@@ -101,13 +101,13 @@ class AnthropicProvider:
 
         import json
 
-        print("=" * 50)
-        print("Request to:", self._client.base_url)
-        print("Model:", self._model)
-        print("System:", json.dumps(system, indent=2))
-        print("Messages:", json.dumps(messages, indent=2)[:500])
-        print("Tools:", json.dumps(tools, indent=2) if tools else "None")
-        print("=" * 50)
+        # print("=" * 50)
+        # print("Request to:", self._client.base_url)
+        # print("Model:", self._model)
+        # print("System:", json.dumps(system, indent=2))
+        # print("Messages:", json.dumps(messages, indent=2)[:500])
+        # print("Tools:", json.dumps(tools, indent=2) if tools else "None")
+        # print("=" * 50)
 
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
@@ -115,6 +115,7 @@ class AnthropicProvider:
                 text_parts.append(text)
             final_message: Message = await stream.get_final_message()
 
+        print(final_message)
         usage: Usage = final_message.usage
         cache_read: int = getattr(usage, "cache_read_input_tokens", 0) or 0
         cache_create: int = getattr(usage, "cache_creation_input_tokens", 0) or 0
