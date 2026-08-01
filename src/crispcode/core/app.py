@@ -134,3 +134,83 @@ class CoreApp:
 
 def run() -> None:
     asyncio.run(CoreApp().run())
+
+
+"""
+一次问答的生命周期
+
+  用户每次提问：
+    JSON-RPC agent.run(goal="...")
+        │
+        ▼
+    SocketServer._read_line() → _dispatch()     
+        │
+        ▼
+    _agent_run_handler()
+        │
+        ├─ new_run_id()                    ← 创建这次 run 的唯一 ID
+        ├─ AgentRunner(...)                ← 创建（不是复用）
+        ├─ asyncio.create_task(runner.run) ← 后台启动
+        └─ return run_id                   ← 立刻回复客户端
+                                                │
+                                                ▼
+                                          runner.run()
+                                                │
+                                                ├─ 创建 EventBus
+                                                ├─ 创建 AnthropicProvider
+                                                ├─ 创建 ToolRegistry（8 个工具）
+                                                ├─ 创建 AgentLoop
+                                                ├─ 创建 ExecutionContext
+                                                │
+                                                └─ await loop.run(context)
+                                                       │
+                                                       ├─ step 1: LLM 思考 → 调工具 → 记录
+                                                       ├─ step 2: LLM 思考 → 调工具 → 记录
+                                                       ├─ ...
+                                                       └─ step N: LLM 说 end_turn → 完成
+
+  run 结束 → AgentRunner.run() 返回 → 协程结束 → 这次任务彻底结束
+
+  关键点
+
+  - AgentRunner 不是常驻对象，每次 agent.run 创建一个新的，跑完就销毁
+  - AgentLoop 的 while not context.is_done() 循环，就是一次问答里的多步对话
+  - 一次问答 = 一次 run = 一个 AgentRunner = 一个 AgentLoop = 多个 step
+  - 用户下次提问 = 又一次全新的 agent.run = 又一个新的 AgentRunner
+  
+  
+  
+  daemon 里一直跑着的东西
+  
+    ┌──────────────────────┬───────────────────────────────┬────────────────────────┐
+    │         组件         │           循环方式            │         干什么         │
+    ├──────────────────────┼───────────────────────────────┼────────────────────────┤
+    │ SocketServer         │ await reader.readline()       │ 等客户端连接、读命令   │
+    ├──────────────────────┼───────────────────────────────┼────────────────────────┤
+    │ CoreApp              │ await shutdown.wait()         │ 等 SIGINT/SIGTERM 信号 │
+    ├──────────────────────┼───────────────────────────────┼────────────────────────┤
+    │ TraceWriter._drain() │ while True: await queue.get() │ 等 trace 记录写入文件  │
+    └──────────────────────┴───────────────────────────────┴────────────────────────┘
+  
+    daemon 启动
+        │
+        ├─ SocketServer._read_loop()     ← 无限循环，等命令来
+        ├─ TraceWriter._drain()          ← 无限循环，等 trace 记录来
+        └─ CoreApp: await shutdown.wait() ← 等退出信号
+  
+    其他所有东西都是"来了才跑，跑完就没了"：
+  
+    AgentRunner.run()       ← agent.run 来了才创建，跑完就销毁
+    AgentLoop.run()         ← 跟着 AgentRunner 一起生一起死
+    invoke_tool()           ← 工具调用时创建，返回结果就结束
+  
+    类比
+  
+    SocketServer  = 前台接待（一直值班，有客人来才带路）
+    CoreApp       = 经理（等下班信号）
+    TraceWriter   = 记录员（等要记录的东西）
+  
+    AgentRunner   = 临时项目组（来了任务才组建，做完就解散）
+    AgentLoop     = 项目组的每日会议（项目期间反复开，项目结束就停）
+
+"""
