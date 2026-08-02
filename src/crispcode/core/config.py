@@ -15,6 +15,7 @@ _DEFAULT_LOG_FORMAT = "text"
 _DEFAULT_CONFIG_PATH = "~/.crispcode/config.toml"
 _DEFAULT_MAX_STEPS = 20
 _DEFAULT_MODEL = "mimo-v2.5-pro"
+_DEFAULT_TRACE_FILE = "~/.crispcode/trace/daemon.log"
 
 
 @dataclass
@@ -30,6 +31,20 @@ class AgentConfig:
 
 
 @dataclass
+class TraceConfig:
+    enabled: bool = False
+    file: str = "~/.crispcode/logs/trace.log"
+    include_llm_payload: bool = False
+
+
+@dataclass
+class BaseConfig:
+    ANTHROPIC_API_KEY: str | None = None
+    ANTHROPIC_BASE_URL: str | None = None
+    CRISP_LLM_DEFAULT_MODEL: str | None = None
+
+
+@dataclass
 class LlmConfig:
     default_model: str = _DEFAULT_MODEL
     router: str = "static"  # / "static" / "rule_based" (S4) / cost_budget (S6)
@@ -42,6 +57,8 @@ class CrispConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
+    config: BaseConfig = field(default_factory=BaseConfig)
+    trace: TraceConfig = field(default_factory=TraceConfig)
 
 
 def get_config() -> CrispConfig:
@@ -71,11 +88,28 @@ def get_config() -> CrispConfig:
 
 
 def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
-    unknown = set(data.keys()) - {"core", "logging"}
+    # print(f"DEBUG: data = {data}")  # 添加这行
+    unknown = set(data.keys()) - {"config", "core", "logging", "trace", "agent", "llm"}
     if unknown:
         raise SystemExit(
-            f"Unknown top-level config keys:{', '.join(sorted(unknown))}\nNow only support core,logging"
+            f"Unknown top-level config keys:{', '.join(sorted(unknown))}\nNow only support core,logging,trace"
         )
+    if "config" in data:
+        config_data = data["config"]
+        if not isinstance(config_data, dict):
+            raise SystemExit("Config error: [config] must be a table")
+        for key in (
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "CRISP_LLM_DEFAULT_MODEL",
+        ):
+            if key in config_data:
+                val = config_data[key]
+                if not isinstance(val, str):
+                    raise SystemExit(f"Config error: config.{key} must be a string")
+                setattr(config.config, key, val)
+                os.environ[key] = val  # 设置环境变量
+
     if "core" in data:
         core = data["core"]
         if not isinstance(core, dict):
@@ -141,6 +175,26 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
                 raise SystemExit("Config error: llm.router must be a string")
             config.llm.router = val
 
+    if "trace" in data:
+        trace = data["trace"]
+        if not isinstance(trace, dict):
+            raise SystemExit("Config error: [trace] must be a table")
+        unknown_trace: set[str] = set(trace.keys()) - {
+            "enabled",
+            "file",
+            "include_llm_payload",
+        }
+        if unknown_trace:
+            raise SystemExit(
+                f"Unknown [trace] keys :{', '.join(sorted(unknown_trace))}"
+            )
+        for key in ("enabled", "file", "include_llm_payload"):
+            if key in trace:
+                val = trace[key]
+                if not isinstance(val, str):
+                    raise SystemExit(f"Config error: trace.{key} must be a string")
+                setattr(config.trace, key, val)
+
 
 def _apply_env(config: CrispConfig) -> None:
     host = os.environ.get("CRISP_HOST")
@@ -186,3 +240,39 @@ def _apply_env(config: CrispConfig) -> None:
     default_model = os.environ.get("CRISP_LLM_DEFAULT_MODEL")
     if default_model is not None:
         config.llm.default = default_model
+
+    trace_enabled = os.environ.get("CRISP_TRACE_ENABLE")
+    if trace_enabled is not None:
+        config.trace.enabled = trace_enabled.lower() in ("1", "true", "yes")
+
+    trace_file = os.environ.get("CRISP_TRACE_FILE", _DEFAULT_TRACE_FILE)
+    if trace_file is not None:
+        config.trace.file = trace_file
+
+    trace_include_llm_payload = os.environ.get("CRISP_TRACE_INCLUDE_LLM_PAYLOAD")
+    if trace_include_llm_payload is not None:
+        config.trace.include_llm_payload = trace_include_llm_payload.lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+    default_model = os.environ.get("CRISP_LLM_DEFAULT_MODEL")
+    if default_model is not None:
+        config.llm.default_model = default_model
+
+    trace_enabled = os.environ.get("CRISP_TRACE_ENABLED")
+    if trace_enabled is not None:
+        config.trace.enabled = trace_enabled.lower() not in ("0", "false", "no")
+
+    trace_file = os.environ.get("CRISP_TRACE_FILE")
+    if trace_file is not None:
+        config.trace.file = trace_file
+
+    trace_payload = os.environ.get("CRISP_TRACE_INCLUDE_LLM_PAYLOAD")
+    if trace_payload is not None:
+        config.trace.include_llm_payload = trace_payload.lower() not in (
+            "0",
+            "false",
+            "no",
+        )

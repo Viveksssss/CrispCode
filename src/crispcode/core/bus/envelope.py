@@ -43,6 +43,15 @@ INVALID_PARAMS = -32602  # 参数错误
 INTERNAL_ERROR = -32603  # 服务器内部错误
 
 
+def HandleError(Exception):
+    """命令 handler 抛出此异常，SocketServer 将其转换为结构化 JSON-RPC 错误响应。"""
+
+    def __init__(self, code: int, message: str, data: Any = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.data = data
+
+
 def make_error(
     id: str | None, code: int, message: str, data: Any = None
 ) -> JsonRpcError:

@@ -36,6 +36,8 @@ class LLMProvider(Protocol):
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         runs_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse: ...
 
 
@@ -65,6 +67,8 @@ class AnthropicProvider:
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         runs_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse:
         await bus.publish(
             LlmModelSelectedEvent(
@@ -173,6 +177,8 @@ class OpenAIProvider:
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         runs_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse:
         await bus.publish(
             LlmModelSelectedEvent(
@@ -257,7 +263,7 @@ class OpenAIProvider:
             {"role": "user", "content": [{"type": "text", "text": "请继续"}]}	                                                     {"role": "user", "content": "请继续"}
             关键变化：
             工具结果角色变更：Anthropic 把工具结果放在 user 消息里，OpenAI 有专门的 tool 角色
-            字段名映射：tool_use_id → tool_call_id（命名风格统一）
+            字段名映射：tool_use_id -> tool_call_id（命名风格统一）
         3.assistant
             anthropoc:
             {

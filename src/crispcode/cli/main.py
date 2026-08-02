@@ -4,7 +4,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-
+from crispcode.cli.commands.core import cmd_core_start, cmd_core_status, cmd_core_stop
+from crispcode.cli.commands.trace import cmd_trace
 from crispcode.cli.commands.ping import cmd_ping
 from crispcode.cli.commands.run import cmd_run
 from crispcode.cli.commands.version import cmd_version
@@ -21,6 +22,27 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Run an agent task")
     run_parser.add_argument("--goal", required=True, help="Goal for the accomplish")
 
+    core_parser = subparsers.add_parser("core", help="Manage the core daemon")
+    core_sub = core_parser.add_subparsers(dest="core_command")
+    core_sub.add_parser("start", help="Start the daemon in the background")
+    core_sub.add_parser("stop", help="Stop the running daemon")
+    core_sub.add_parser("status", help="Show daemon status")
+
+    trace_parser = subparsers.add_parser("trace", help="View system trace log")
+    trace_parser.add_argument(
+        "runs_id", nargs="?", default=None, help="Filter by run ID"
+    )
+    trace_parser.add_argument(
+        "--layer", choices=["ipc", "event", "llm"], help="Filter by layer"
+    )
+    trace_parser.add_argument(
+        "--direction", help="Filter by direction (e.g. CORE->LLM)"
+    )
+    trace_parser.add_argument("--raw", action="store_true", help="Output raw NDJSON")
+    trace_parser.add_argument(
+        "--follow", "-f", action="store_true", help="Follow new records"
+    )
+
     args = parser.parse_args()
 
     if args.version:
@@ -29,10 +51,29 @@ def main() -> None:
 
     config = get_config()
     setup_logging(config)
+
     if args.command == "ping":
         cmd_ping(config)
     elif args.command == "run":
         cmd_run(args.goal, config)
+    elif args.command == "core":
+        if args.core_command == "start":
+            cmd_core_start(config)
+        elif args.core_command == "stop":
+            cmd_core_stop(config)
+        elif args.core_command == "status":
+            cmd_core_status(config)
+        else:
+            core_parser.print_help()
+    elif args.command == "trace":
+        cmd_trace(
+            args.runs_id,
+            config,
+            layer=args.layer,
+            direction=args.direction,
+            raw=args.raw,
+            follow=args.follow,
+        )
     else:
         parser.print_help()
         sys.exit(1)

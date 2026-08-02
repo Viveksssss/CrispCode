@@ -17,6 +17,7 @@ class ExecutionContext:
     step: int = 0
     status: str = "running"  # "running" | "success" | "failed"
     reason: str | None = None
+    result: str = ""
 
     def __post_init__(self) -> None:
         """初始化将goal加入到消息历史"""

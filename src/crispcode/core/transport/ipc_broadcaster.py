@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, UTC
 import fnmatch
 import logging
 import uuid
 from dataclasses import dataclass
 from pydantic import BaseModel
 from crispcode.core.bus.envelope import EventPushEnvelope
+from crispcode.core.trace.writer import TraceWriter
+from crispcode.core.trace.record import TraceRecord
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +22,18 @@ class _Subscription:
     scope: str
 
 
+def _now() -> str:
+    """返回当前 UTC 时间的 ISO 格式字符串"""
+    return datetime.now(UTC).isoformat()
+
+
 class IpcEventBroadcaster:
-    def __init__(self) -> None:
+    def __init__(self, trace: TraceWriter | None = None) -> None:
         # 使用字典：key = sub_id, value = Subscription
         self._subscriptions: dict[str, _Subscription] = {}
         # 反向索引：writer -> [sub_ids]（便于快速清理）
         self._writer_subs: dict[asyncio.StreamWriter, list[str]] = {}
+        self._trace = trace
 
     def subscribe(
         self, writer: asyncio.StreamWriter, topics: list[str], scope: str = "global"
@@ -63,6 +72,19 @@ class IpcEventBroadcaster:
                 envelope = EventPushEnvelope(event=event_dict)
                 sub.writer.write(envelope.model_dump_json().encode() + b"\n")
                 await sub.writer.drain()
+                if self._trace is not None:
+                    client_id = str(sub.writer.get_extra_info("peername", "<unknown>"))
+                    self._trace.emit(
+                        TraceRecord(
+                            ts=_now(),
+                            direction="CORE->CLIENT",
+                            layer="ipc",
+                            kind="push",
+                            runs_id=runs_id,
+                            client_id=client_id,
+                            data={"sub_id": sub.sub_id, "event_type": event_type},
+                        )
+                    )
             except (ConnectionResetError, BrokenPipeError, OSError):
                 logger.debug(
                     "dead connection for sub %s, scheduling cleanup", sub.sub_id

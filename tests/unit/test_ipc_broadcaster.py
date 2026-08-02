@@ -115,7 +115,7 @@ async def test_dead_connection_removed_after_failure() -> None:
     broadcaster.subscribe(writer, topics=["run.*"])
 
     event = _run_started()
-    await broadcaster.handle(event)  # drain fails → subscription removed
+    await broadcaster.handle(event)  # drain fails -> subscription removed
 
     assert writer.write.call_count == 1  # type: ignore[attr-defined]
 

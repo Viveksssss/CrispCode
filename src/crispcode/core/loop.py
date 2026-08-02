@@ -42,8 +42,10 @@ class AgentLoop:
                     tool_schemas=self._registry.tool_schemas(),
                     bus=self._bus,
                     runs_id=context.runs_id,
+                    step=context.step,
                 )
             except asyncio.CancelledError:
+                """向上传播取消异常，以便在外部取消时正确处理"""
                 context.mark_failed("cancelled")
                 raise
             except Exception as e:
