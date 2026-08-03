@@ -35,7 +35,7 @@ class WriteFileTool(BaseTool):
         """写入文件内容；超 1MB 拒绝；禁止 .. 路径遍历；自动创建父目录"""
         path_str = str(params.get("path", ""))
         content = str(params.get("content", ""))
-        if ".." in path_str or path_str.startswith("/"):
+        if ".." in path_str:
             raise PermissionError(f"Path traversal is not allowed: {path_str}.")
 
         encoded = content.encode("utf-8")

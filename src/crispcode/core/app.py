@@ -56,7 +56,7 @@ class CoreApp:
         return PongResult(
             server_version=crispcode.__version__,
             uptime_ms=int(time.monotonic() - self._start_time) * 1000,
-            received_at=datetime.datetime.now(datetime.UTC).isoformat(),
+            received_at=datetime.now(UTC).isoformat(),
         )
 
     async def _trace_event_handler(self, event: BaseModel) -> None:

@@ -36,7 +36,7 @@ class ListDirTool(BaseTool):
         path_str = str(params.get("path", "."))
         max_depth = min(int(str(params.get("max_depth", 2))), _MAX_DEPTH)
 
-        if ".." in path_str or path_str.startswith("/"):
+        if ".." in path_str:
             raise PermissionError(f"Path traversal is not allowed: {path_str}.")
 
         root = Path(path_str)

@@ -23,6 +23,8 @@ class _EndTurnProvider:
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         runs_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse:
         return LlmResponse(stop_reason="end_turn", text="done")
 
@@ -39,6 +41,8 @@ class _LoopingProvider:
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         runs_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse:
         self._call += 1
         tc = ToolCallBlock(id=f"t{self._call}", name="unknown_tool", input={})
@@ -129,7 +133,7 @@ async def test_run_creates_run_subdirectory(tmp_path: Path) -> None:
 
     subdirs = [p for p in tmp_path.iterdir() if p.is_dir()]
     assert len(subdirs) == 1
-    assert (subdirs[0] ).exists()
+    assert (subdirs[0]).exists()
 
 
 async def test_extra_handlers_receive_events(tmp_path: Path) -> None:

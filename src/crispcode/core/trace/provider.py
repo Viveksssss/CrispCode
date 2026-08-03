@@ -37,7 +37,7 @@ class TracingProvider:
         call_data: dict[str, Any]
         if self._include_payload:
             call_data = {
-                "message": messages,
+                "messages": messages,
                 "tool_schemas": tool_schemas,
             }
         else:

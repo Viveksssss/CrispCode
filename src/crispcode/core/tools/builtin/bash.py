@@ -35,7 +35,7 @@ class BashTool(BaseTool):
         command = str(params.get("command", ""))
         timeout = min(int(str(params.get("timeout", _DEFAULT_TIMEOUT))), 120)
         try:
-            proc = asyncio.create_subprocess_shell(
+            proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -69,7 +69,7 @@ class BashTool(BaseTool):
 
         if returncode != 0:
             return ToolResult(
-                content=f"[exit code {returncode}]\n{output}",
+                content=f"[exit {returncode}]\n{output}",
                 is_error=True,
                 error_type="runtime_error",
             )
