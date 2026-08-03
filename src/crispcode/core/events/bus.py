@@ -13,6 +13,7 @@ class EventBus:
     def subscribe(self, handler: EventHandler) -> None:
         """注册一个事件处理函数"""
         self._subscribers.append(handler)
+        self._subscribers = list(set(self._subscribers))
 
     async def publish(self, event: BaseModel) -> None:
         """按顺序依次调用所有订阅者"""

@@ -79,6 +79,7 @@ class AgentLoop:
                     )
 
             if response.stop_reason == "end_turn":
+                context.result = response.text or ""
                 context.mark_success()
             elif context.step >= context.max_steps:
                 context.mark_failed("exceeded_max_steps")

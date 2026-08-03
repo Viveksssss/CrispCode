@@ -44,7 +44,6 @@ class CoreApp:
         self._start_time = time.monotonic()
         self._bus = EventBus()
         self._broadcaster: IpcEventBroadcaster | None = None
-        # self._current_run_task: asyncio.Task[None] | None = None
         self._config: CrispConfig | None = None
         self._trace: TraceWriter | None = None
         self._running_runs: set[asyncio.Task[None]] = set()
@@ -82,9 +81,6 @@ class CoreApp:
         run_task = asyncio.create_task(runner.run(cmd.goal, runs_id=runs_id))
         self._running_runs.add(run_task)
         run_task.add_done_callback(self._running_runs.discard)
-        self._current_run_task = asyncio.create_task(
-            runner.run(cmd.goal, runs_id=runs_id)
-        )
         return AgentRunResult(runs_id=runs_id)
 
     async def _subscribe_handler(self, params: dict[str, Any]) -> EventSubscribeResult:

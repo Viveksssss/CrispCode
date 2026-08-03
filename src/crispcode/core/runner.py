@@ -14,9 +14,14 @@ from crispcode.core.events.writer import EventWriter
 from crispcode.core.llm.provider import AnthropicProvider, LLMProvider
 from crispcode.core.loop import AgentLoop
 from crispcode.core.runs import RUNS_DIR, new_runs_id, ensure_run_dir, events_file
+from crispcode.core.task.manager import TaskManager
 from crispcode.core.tools.builtin.bash import BashTool
 from crispcode.core.tools.builtin.list_dir import ListDirTool
 from crispcode.core.tools.builtin.read_file import ReadFileTool
+from crispcode.core.tools.builtin.task_create import TaskCreateTool
+from crispcode.core.tools.builtin.task_get import TaskGetTool
+from crispcode.core.tools.builtin.task_list import TaskListTool
+from crispcode.core.tools.builtin.task_update import TaskUpdateTool
 from crispcode.core.tools.builtin.write_file import WriteFileTool
 from crispcode.core.tools.registry import ToolRegistry
 from crispcode.core.trace.provider import TracingProvider
@@ -52,12 +57,16 @@ class AgentRunner:
         self._runs_dir = runs_dir or RUNS_DIR
         self._trace = trace
 
-    def _build_registry(self, task_manager: None = None) -> ToolRegistry:
+    def _build_registry(self, task_manager) -> ToolRegistry:
         registry = ToolRegistry()
         registry.register(ReadFileTool())
         registry.register(ListDirTool())
         registry.register(WriteFileTool())
         registry.register(BashTool())
+        registry.register(TaskCreateTool(task_manager))
+        registry.register(TaskUpdateTool(task_manager))
+        registry.register(TaskListTool(task_manager))
+        registry.register(TaskGetTool(task_manager))
         return registry
 
     async def run(self, goal: str, *, runs_id: str | None = None) -> None:
@@ -72,6 +81,8 @@ class AgentRunner:
         run_dir = ensure_run_dir(runs_dir=self._runs_dir, runs_id=runs_id)
         run_dir.mkdir(parents=True, exist_ok=True)
         events_path = run_dir / "events.jsonl"
+
+        task_manager = TaskManager(run_dir / ".tasks")
 
         bus = self._bus if self._bus is not None else EventBus()
         for h in self._extra_handler:
@@ -104,7 +115,7 @@ class AgentRunner:
                     include_payload=self._config.trace.include_llm_payload,
                 )
 
-            registry = self._build_registry()
+            registry = self._build_registry(task_manager=task_manager)
             loop = AgentLoop(
                 provider=provider,
                 registry=registry,
@@ -130,3 +141,9 @@ class AgentRunner:
             )
         if cancelled:
             raise asyncio.CancelledError()
+
+        return RunOutcome(
+            status=context.status,
+            result=context.result,
+            reason=context.reason,
+        )

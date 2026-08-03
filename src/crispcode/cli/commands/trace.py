@@ -58,7 +58,7 @@ def cmd_trace(
                         raw=raw,
                     )
                 else:
-                    time.sleep(0.05)
+                    time.sleep(0.5)
 
 
 # 解析单行并根据过滤条件决定是否输出

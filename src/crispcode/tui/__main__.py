@@ -17,7 +17,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = get_config()
-    app = CrispTuiApp(config.host, config.port, replay_runs_id=args.replay)
+    app = CrispTuiApp(config.host, config.port, replayed_runs_id=args.replay)
     app.run()
 
 
