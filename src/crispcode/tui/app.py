@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio import events
 import json
 from typing import Any
 
@@ -48,14 +49,16 @@ class LLMStreamBlock(Static):
             self.mount(Markdown(self._text))
 
 
-class ToolCallBlock(Widget):
+class ToolCallBlock(Static):
     """可折叠的工具调用块: 折叠式显示摘要,点击后显示完整的params和output"""
 
     DEFAULT_CSS = """
-    ToolCallBlock { height: auto; padding: 0 2; color: $text-muted; }
-    ToolCallBlock > .summary { color: $text-muted; }
+    ToolCallBlock { height: auto; padding: 0 2; color: $text-muted; border: #CCCCFF; }
+    ToolCallBlock.error { height: auto; padding: 0 2; color: $text-muted; border: red; }
+    ToolCallBlock > .tool_title { color: $text-muted; padding-left: 0; }
+    ToolCallBlock > .summary { color: $text-muted; padding-left: 4; }
     ToolCallBlock > .detail { display: none; padding: 0 2 0 4; color: $text-muted; }
-    ToolCallBlock.expanded > .detail { display: block; }
+    ToolCallBlock.expanded > .detail { display: block; padding-left: 4;}
     """
 
     def __init__(self, tool_name: str, params: dict[str, Any]) -> None:
@@ -68,25 +71,35 @@ class ToolCallBlock(Widget):
         self._elapsed_ms = 0
         self._is_error = False
         self._finished = False
+        self._tool_title = ""
+        self._summarys = ""
+        self._expanded = ""
 
     def compose(self) -> ComposeResult:
-        yield Static(self._summary(), classes="summary")
+        self._tool_title, self._summarys = self._summary()
+        yield Static(self._tool_title, classes="tool_title")
+        yield Static(self._summarys, classes="summary")
         yield Static("", classes="detail")
 
-    def _summary(self) -> str:
+    def _summary(self) -> tuple[str, str]:
         """生成摘要行文本"""
-        params_pre = _preview(self._params_full, 60)
+        params_pre = _preview(self._params_full, 30)
         icon = "[bold yellow]✎[/bold yellow]"
-        line = f" {icon} [bold]{self._tool_name}[/bold] [dim]{params_pre}[/dim]"
+        title = f"{icon} [#FFCCFF]{self._tool_name}[/#FFCCFF]"
+        hint = "[dim](▸ click to toggle)[/dim]" if len(self._output) > 30 else ""
+        title += hint
+
+        line = ""
         if self._finished:
-            out_pre = _preview(self._output, 50)
+            out_pre = _preview(self._output, 30)
             color = "red" if self._is_error else "dim"
-            hint = " [dim]▸ click to expand[/dim]" if len(self._output) > 50 else ""
+
             line += (
-                f"\n [dim]↳[[/dim] [{color}]{out_pre}[{color}]"
-                f" [dim]{self._elapsed_ms}ms[/dim]{hint}"
+                f"\n[{color}]{out_pre}[{color}]"
+                f"    [dim]{self._elapsed_ms}ms[/dim]\n"
             )
-        return line
+
+        return title, line
 
     def set_result(
         self, output: str, elapsed_ms: int, *, is_error: bool = False
@@ -96,19 +109,27 @@ class ToolCallBlock(Widget):
         self._elapsed_ms = elapsed_ms
         self._is_error = is_error
         self._finished = True
+        self._tool_title, self._summarys = self._summary()
         if self.children:
-            self.query_one(".summary", Static).update(self._summary())
+            self.query_one(".tool_title", Static).update(self._tool_title)
+            self.query_one(".summary", Static).update(self._summarys)
+
+        if is_error:
+            self.add_class("error")
 
     def on_click(self) -> None:
         if not self._finished:
             return
+        summary = self.query_one(".summary", Static)
         if "expanded" in self.classes:
+            summary.update(self._summarys)
             self.remove_class("expanded")
         else:
+            summary.update("")
             detail = self.query_one(".detail", Static)
             detail.update(
                 f"[dim]params:[/dim]\n    {self._params_full}\n"
-                f"[dim]output:[/dim]\n    {self._output}\n"
+                f"[dim]output:[/dim]\n\n{self._output}\n"
                 f"[dim]elapsed:[/dim] {self._elapsed_ms}ms"
             )
             self.add_class("expanded")
@@ -129,8 +150,10 @@ class CrispTuiApp(App[None]):
     }
     #log-view {
         height: 1fr;
+        scrollbar-size: 1 1;
     }
-    Static.run-header { color: cyan; padding: 1 2 0 2; }
+    Static.run-id { color: cyan; padding: 1 2 0 2;  }
+    Static.run-header { color: $text; padding: 0 1 0 2; background: white;   /* 背景色 */ }
     Static.step-divider { color: $text-muted; padding: 0 2; }
     Static.run-ok { color: green; padding: 0 2 1 2; }
     Static.run-err { color: red; padding: 0 2 1 2; }
@@ -140,17 +163,18 @@ class CrispTuiApp(App[None]):
     """
 
     def __init__(
-        self, host: str, port: int, replayed_runs_id: str | None = None
+        self, config: CrispConfig, replayed_runs_id: str | None = None
     ) -> None:
         """初始化连接参数和 token 缓冲区"""
         super().__init__()
-        self._host = host
-        self._port = port
+        self._host = config.host
+        self._port = config.port
         self._replayed_runs_id = replayed_runs_id
         self._token_buf = ""
         self._client: SocketClient | None = None
         self._current_llm: LLMStreamBlock | None = None
         self._pending_tool_blocks: dict[str, ToolCallBlock] = {}
+        self._config = config
 
     def compose(self) -> ComposeResult:
         """构建 UI：顶部状态栏 + 可滚动事件日志"""
@@ -164,6 +188,7 @@ class CrispTuiApp(App[None]):
     def _append(self, widget: Widget) -> None:
         """向日志视图追加一个 widget 并滚动到底部"""
         log_view = self.query_one("#log-view", VerticalScroll)
+        log_view.scroll_relative(y=10)
         log_view.mount(widget)
         log_view.scroll_end(animate=False)
 
@@ -248,8 +273,13 @@ class CrispTuiApp(App[None]):
             goal = event.get("goal", "")
             self._append(
                 Static(
-                    f"[bold cyan]▶ run[/bold cyan]  [dim]{runs_id}[/dim]\n"
-                    f"  [dim]goal:[/dim] {goal}",
+                    f"[bold cyan]▶ run[/bold cyan]  [dim]{runs_id}[/dim]",
+                    classes="run-id",
+                )
+            )
+            self._append(
+                Static(
+                    f"[#FF6699]✴[/#FF6699] [black]{goal}[black]",
                     classes="run-header",
                 )
             )
@@ -258,7 +288,7 @@ class CrispTuiApp(App[None]):
             step = event.get("step", "")
             self._append(
                 Static(
-                    f"[dim]── step {step} {'─' * 48}[/dim]",
+                    f"[#00CC33]۞[/#00CC33] [#00CC33]step {step}[/#00CC33]",
                     classes="step-divider",
                 )
             )
@@ -307,10 +337,12 @@ class CrispTuiApp(App[None]):
                     )
                 )
 
+            self._append(Static("-" * (self.size.width - 10)))
+
         elif t == "llm.usage":
             self._append(
                 Static(
-                    f"[dim]  tokens  "
+                    f"[dim]   tokens  "
                     f"in={event.get('input_tokens')} "
                     f"out={event.get('output_tokens')} "
                     f"cache={event.get('cache_read_input_tokens')}[/dim]",
@@ -336,5 +368,5 @@ class CrispTuiApp(App[None]):
 
 def run(config: CrispConfig, replayed_runs_id: str | None = None) -> None:
     """TUI 入口：读取配置并启动 KamaTuiApp"""
-    app = CrispTuiApp(config.host, config.port, replayed_runs_id=replayed_runs_id)
+    app = CrispTuiApp(config, replayed_runs_id=replayed_runs_id)
     app.run()
