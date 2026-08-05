@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio.log import logger
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,16 +14,27 @@ from crispcode.core.events.bus import EventBus, EventHandler
 from crispcode.core.events.writer import EventWriter
 from crispcode.core.llm.provider import AnthropicProvider, LLMProvider
 from crispcode.core.loop import AgentLoop
-from crispcode.core.runs import RUNS_DIR, new_runs_id, ensure_run_dir, events_file
+from crispcode.core.runs import (
+    RUNS_DIR,
+    new_runs_id,
+    ensure_run_dir,
+    events_file,
+    run_dir_old,
+)
+from crispcode.core.session.model import Session
+from crispcode.core.session.store import SessionStore
 from crispcode.core.task.manager import TaskManager
-from crispcode.core.tools.builtin.bash import BashTool
-from crispcode.core.tools.builtin.list_dir import ListDirTool
-from crispcode.core.tools.builtin.read_file import ReadFileTool
-from crispcode.core.tools.builtin.task_create import TaskCreateTool
-from crispcode.core.tools.builtin.task_get import TaskGetTool
-from crispcode.core.tools.builtin.task_list import TaskListTool
-from crispcode.core.tools.builtin.task_update import TaskUpdateTool
-from crispcode.core.tools.builtin.write_file import WriteFileTool
+from crispcode.core.tools.builtin import (
+    BashTool,
+    ListDirTool,
+    NoteSaveTool,
+    ReadFileTool,
+    TaskCreateTool,
+    TaskGetTool,
+    TaskListTool,
+    TaskUpdateTool,
+    WriteFileTool,
+)
 from crispcode.core.tools.registry import ToolRegistry
 from crispcode.core.trace.provider import TracingProvider
 from crispcode.core.trace.writer import TraceWriter
@@ -57,7 +69,14 @@ class AgentRunner:
         self._runs_dir = runs_dir or RUNS_DIR
         self._trace = trace
 
-    def _build_registry(self, task_manager) -> ToolRegistry:
+    def _build_registry(
+        self,
+        task_manager: TaskManager,
+        *,
+        session: Session | None = None,
+        store: SessionStore | None = None,
+        runs_id: str | None = None,
+    ) -> ToolRegistry:
         registry = ToolRegistry()
         registry.register(ReadFileTool())
         registry.register(ListDirTool())
@@ -67,22 +86,34 @@ class AgentRunner:
         registry.register(TaskUpdateTool(task_manager))
         registry.register(TaskListTool(task_manager))
         registry.register(TaskGetTool(task_manager))
+        if session is not None and store is not None and runs_id is not None:
+            registry.register(NoteSaveTool(store, session.id, runs_id))
+
         return registry
 
     async def run(self, goal: str, *, runs_id: str | None = None) -> None:
         await self.run_and_capture(goal, runs_id=runs_id)
 
     async def run_and_capture(
-        self, goal: str, *, runs_id: str | None = None
+        self,
+        goal: str,
+        *,
+        runs_id: str | None = None,
+        session: Session | None = None,
+        store: SessionStore | None = None,
     ) -> RunOutcome:
-        runs_id = runs_id if runs_id else new_runs_id()
+        runs_id = runs_id or new_runs_id()
 
-        # ✅ 使用 self._runs_dir 而不是全局函数
-        run_dir = ensure_run_dir(runs_dir=self._runs_dir, runs_id=runs_id)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        events_path = run_dir / "events.jsonl"
-
-        task_manager = TaskManager(run_dir / ".tasks")
+        if session is not None and store is not None:
+            run_path = store.runs_dir(session.id) / runs_id
+            history = store.read_messages(session.id)
+            notes = store.read_notes(session.id)
+        else:
+            run_path = run_dir_old(runs_id).parent
+            history = [{"role": "user", "content": goal}]
+            notes = ""
+        run_path.mkdir(parents=True, exist_ok=True)
+        task_manager = TaskManager(run_path / ".tasks")
 
         bus = self._bus if self._bus is not None else EventBus()
         for h in self._extra_handler:
@@ -92,9 +123,13 @@ class AgentRunner:
             runs_id,
             goal,
             max_steps=self._config.agent.max_steps,
+            prefill_messages=history,
+            session_notes=notes,
         )
 
-        async with EventWriter(events_path) as writer:
+        prefill_len = len(history)
+
+        async with EventWriter(run_path / "events.jsonl") as writer:
             writer.subscribe(bus)
             await bus.publish(
                 RunStartedEvent(
@@ -104,31 +139,42 @@ class AgentRunner:
                 )
             )
 
-            provider: LLMProvider = self._provider or AnthropicProvider(
-                self._config.llm.default_model
-            )
-
-            if self._trace is not None:
-                provider = TracingProvider(
-                    inner=provider,
-                    trace=self._trace,
-                    include_payload=self._config.trace.include_llm_payload,
-                )
-
-            registry = self._build_registry(task_manager=task_manager)
-            loop = AgentLoop(
-                provider=provider,
-                registry=registry,
-                bus=bus,
+            registry = self._build_registry(
+                task_manager=task_manager, session=session, store=store, runs_id=runs_id
             )
 
             cancelled = False
+
             try:
+                provider: LLMProvider = self._provider or AnthropicProvider(
+                    self._config.llm.default_model
+                )
+
+                if self._trace is not None:
+                    provider = TracingProvider(
+                        inner=provider,
+                        trace=self._trace,
+                        include_payload=self._config.trace.include_llm_payload,
+                    )
+
+                loop = AgentLoop(
+                    provider=provider,
+                    registry=registry,
+                    bus=bus,
+                )
                 await loop.run(context)
             except asyncio.CancelledError:
                 cancelled = True
                 if not context.is_done():
                     context.mark_failed("cancelled")
+            except Exception as e:
+                # 👇 添加这两行
+                import traceback
+
+                traceback.print_exc()  # ← 打印堆栈到控制台
+                logger.error(f"Run error: {e}", exc_info=True)
+                if not context.is_done():
+                    context.mark_failed(f"llm_error: {type(e).__name__}: {e}")
 
             await bus.publish(
                 RunFinishedEvent(
@@ -138,6 +184,10 @@ class AgentRunner:
                     steps=context.step,
                     ts=_now(),
                 )
+            )
+        if session is not None and store is not None:
+            store.append_messages(
+                session.id, context.messages[prefill_len:], runs_id=runs_id
             )
         if cancelled:
             raise asyncio.CancelledError()

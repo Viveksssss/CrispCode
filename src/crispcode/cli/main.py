@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from crispcode.cli.commands.chat import cmd_chat
 from crispcode.cli.commands.core import cmd_core_start, cmd_core_status, cmd_core_stop
 from crispcode.cli.commands.trace import cmd_trace
 from crispcode.cli.commands.ping import cmd_ping
@@ -18,6 +19,7 @@ def main() -> None:
     parser.add_argument("--version", action="store_true", help="Print version and exit")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("ping", help="Ping the core daemon")
+    subparsers.add_parser("chat", help="Start a multi-turn chat session")
 
     run_parser = subparsers.add_parser("run", help="Run an agent task")
     run_parser.add_argument("--goal", required=True, help="Goal for the accomplish")
@@ -54,6 +56,8 @@ def main() -> None:
 
     if args.command == "ping":
         cmd_ping(config)
+    elif args.command == "chat":
+        cmd_chat(config)
     elif args.command == "run":
         cmd_run(args.goal, config)
     elif args.command == "core":

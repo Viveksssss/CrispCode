@@ -38,6 +38,7 @@ class LLMProvider(Protocol):
         runs_id: str,
         *,
         step: int = 0,
+        system: str | None = None,
     ) -> LlmResponse: ...
 
 
@@ -69,6 +70,7 @@ class AnthropicProvider:
         runs_id: str,
         *,
         step: int = 0,
+        system: str | None = None,
     ) -> LlmResponse:
         await bus.publish(
             LlmModelSelectedEvent(
@@ -79,8 +81,8 @@ class AnthropicProvider:
         system: list[dict[str, object]] = [
             {
                 "type": "text",
-                "text": _SYSTEM_PROMPT,
-                # "cache_control": {"type": "ephemeral"},
+                "text": system or _SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
             }
         ]
 
@@ -179,6 +181,7 @@ class OpenAIProvider:
         runs_id: str,
         *,
         step: int = 0,
+        system: str | None = None,
     ) -> LlmResponse:
         await bus.publish(
             LlmModelSelectedEvent(

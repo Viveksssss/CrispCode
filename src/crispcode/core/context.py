@@ -13,6 +13,8 @@ class ExecutionContext:
     goal: str
     max_steps: int
     provider: ModelProvider = ModelProvider.ANTHROPIC  # 新增
+    prefill_messages: list[dict[str, Any]] = field(default_factory=list)
+    session_notes: str = ""
     messages: list[dict[str, Any]] = field(default_factory=list)
     step: int = 0
     status: str = "running"  # "running" | "success" | "failed"
@@ -22,7 +24,9 @@ class ExecutionContext:
     def __post_init__(self) -> None:
         """初始化将goal加入到消息历史"""
         self._formatter = get_formatter(self.provider)
-        if not self.messages:
+        if self.prefill_messages:
+            self.messages = self.prefill_messages
+        elif not self.messages:
             initial_msg = self._formatter.format_initial_user_message(self.goal)
             self.messages.append(initial_msg)
 
@@ -31,35 +35,16 @@ class ExecutionContext:
         formatted = self._formatter.format_assistant_message(content)
         self.messages.append(formatted)
 
-    # def add_tool_result(
-    #     self, tool_use_id: str, content: str, is_error: bool = False
-    # ) -> None:
-    #     """添加工具结果（自动适配格式）"""
-    #     block: dict[str, Any] = {
-    #         "type": "tool_result",
-    #         "tool_use_id": tool_use_id,
-    #         "content": content,
-    #     }
+    def system_prompt(self, base: str) -> str:
+        if not self.session_notes.strip():
+            return base
+        return (
+            base
+            + "\n\n## Session Notes\n"
+            + self.session_notes.strip()
+            + "\n\nRemember important durable facts by calling note_save."
+        )
 
-    #     formatted = self._formatter.format_tool_result(tool_use_id, content, is_error)
-
-    #     if is_error:
-    #         block["is_error"] = True
-
-    #     # Anthropic 特殊处理：合并 tool_result 到最后的 user 消息
-    #     if self.provider == ModelProvider.ANTHROPIC:
-    #         last = self.messages[-1] if self.messages else None
-    #         if (
-    #             last is not None
-    #             and last["role"] == "user"
-    #             and isinstance(last.get("content"), list)
-    #             and last["content"]
-    #             and all(b.get("type") == "tool_result" for b in last["content"])
-    #         ):
-    #             last["content"].append(formatted["content"][0])
-    #             return
-
-    #     self.messages.append(formatted)
     def add_tool_result(
         self, tool_use_id: str, content: str, is_error: bool = False
     ) -> None:
@@ -71,7 +56,7 @@ class ExecutionContext:
         }
 
         formatted = self._formatter.format_tool_result(tool_use_id, content, is_error)
-        print(f"   - Formatted: {formatted}")
+        # print(f"   - Formatted: {formatted}")
 
         if is_error:
             block["is_error"] = True
@@ -79,8 +64,7 @@ class ExecutionContext:
         # Anthropic 特殊处理
         if self.provider == ModelProvider.ANTHROPIC:
             last = self.messages[-1] if self.messages else None
-            print(f"   - Last message: {last}")
-
+            # print(f"   - Last message: {last}")
             if (
                 last is not None
                 and last["role"] == "user"

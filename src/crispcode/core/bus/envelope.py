@@ -1,8 +1,11 @@
 from typing import Any, Literal
 from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING
 import pytest
 
-from crispcode.core.bus.commands import PingCommand, PongResult
+if TYPE_CHECKING:
+    from crispcode.core.bus.commands import PingCommand, PongResult
+
 from crispcode.core.bus.events import CoreStartedEvent
 
 

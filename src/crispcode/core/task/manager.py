@@ -38,7 +38,7 @@ class TaskManager:
     def _save(self, task: Task) -> None:
         """将任务写入对应JSON文件"""
         path = self._dir / f"task_{task.id}.json"
-        path.write_text(json.dumps(task.to_dict, indent=2, ensure_ascii=False))
+        path.write_text(json.dumps(task.to_dict(), indent=2, ensure_ascii=False))
 
     def create(
         self, subject: str, description: str = "", blocked_by: list[int] | None = None

@@ -4,14 +4,15 @@ import asyncio
 from asyncio import events
 import json
 from typing import Any
-
+from textual.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Label, Markdown, RichLog, Static
+from textual.widgets import Label, Markdown, RichLog, Static, TextArea
 from textual.widget import Widget
 from crispcode.core.config import CrispConfig
 from textual.containers import VerticalScroll
-
+from textual.message import Message
+from textual.css.query import NoMatches
 from crispcode.core.transport.socket_client import IpcError, SocketClient
 
 
@@ -23,6 +24,22 @@ def _preview(s: str, n: int) -> str:
 def _params_str(params: dict[str, Any]) -> str:
     """将字典参数序列化为格式化的JSON字符串"""
     return json.dumps(params, ensure_ascii=False)
+
+
+def _param_summary(tool_name: str, params: dict[str, Any], max_len: int = 72) -> str:
+    """从工具参数中提取最适合摘要展示的关键字段"""
+    keys_by_tool = {
+        "read_file": ("path",),
+        "write_file": ("path",),
+        "list_dir": ("path", "max_depth"),
+        "bash": ("command",),
+        "note_save": ("content",),
+    }
+    keys = keys_by_tool.get(tool_name, ())
+    parts = [f"{key}={params[key]!r}" for key in keys if key in params]
+    if not parts:
+        parts = [f"{key}={value!r}" for key, value in list(params.items())[:2]]
+    return _preview(", ".join(parts), max_len)
 
 
 class LLMStreamBlock(Static):
@@ -79,7 +96,7 @@ class ToolCallBlock(Static):
         self._tool_title, self._summarys = self._summary()
         yield Static(self._tool_title, classes="tool_title")
         yield Static(self._summarys, classes="summary")
-        yield Static("", classes="detail")
+        yield Static("", classes="detail", markup=True)
 
     def _summary(self) -> tuple[str, str]:
         """生成摘要行文本"""
@@ -89,15 +106,19 @@ class ToolCallBlock(Static):
         hint = "[dim](▸ click to toggle)[/dim]" if len(self._output) > 30 else ""
         title += hint
 
-        line = ""
+        line = f"[dim]{params_pre}[/dim]"
         if self._finished:
-            out_pre = _preview(self._output, 30)
-            color = "red" if self._is_error else "dim"
+            color = "red" if self._is_error else "green"
+            status = "failed" if self._is_error else "done"
+            line += f"[{color}]{status}[/{color}] [dim]{self._elapsed_ms}ms[/dim]"
+        # if self._finished:
+        #     out_pre = _preview(self._output, 30)
+        #     color = "red" if self._is_error else "dim"
 
-            line += (
-                f"\n[{color}]{out_pre}[{color}]"
-                f"    [dim]{self._elapsed_ms}ms[/dim]\n"
-            )
+        #     line += (
+        #         f"\n[{color}]{out_pre}[{color}]"
+        #         f"    [dim]{self._elapsed_ms}ms[/dim]\n"
+        #     )
 
         return title, line
 
@@ -128,11 +149,58 @@ class ToolCallBlock(Static):
             summary.update("")
             detail = self.query_one(".detail", Static)
             detail.update(
-                f"[dim]params:[/dim]\n    {self._params_full}\n"
-                f"[dim]output:[/dim]\n\n{self._output}\n"
+                f"[dim]params:[/dim]\n    {escape(self._params_full)}\n"
+                f"[dim]output:[/dim]\n\n{escape(self._output)}\n"
                 f"[dim]elapsed:[/dim] {self._elapsed_ms}ms"
             )
+
             self.add_class("expanded")
+
+
+class ChatTextArea(TextArea):
+    """支持Enter提交,Cmd/Shift/+Enter换行"""
+
+    DEFAULT_CSS = """
+    ChatTextArea {
+        height: auto;
+        min-height: 3;
+        max-height: 12;
+        border: round $surface-lighten-2;
+        background: $background;
+        padding: 0 1;
+        margin: 1 2;
+        scrollbar-size-vertical: 1;
+        padding-left:1;
+        padding-right:1;
+    }
+    ChatTextArea:focus {
+        border: round $accent;
+        background: $background;
+    }
+    """
+
+    class Submitted(Message):
+        def __init__(self, area: ChatTextArea) -> None:
+            self.text_area = area
+            self.value = area.text
+            super().__init__()
+
+    async def _on_key(self, event: events.Key) -> None:
+        """Enter 提交；Cmd/Shift/Alt+Enter 插入换行；其余键交回 TextArea 默认行为"""
+        key = event.key
+        if key == "enter":
+            event.stop()
+            event.prevent_default()
+            if self.text.strip():
+                self.post_message(self.Submitted(self))
+
+        if key in ("alt+enter", "shift+enter", "ctrl+j", "super+enter"):
+            event.stop()
+            event.prevent_default()
+            if not self.read_only:
+                self.insert("\n")
+            return
+        await super()._on_key(event)
 
 
 class CrispTuiApp(App[None]):
@@ -174,16 +242,92 @@ class CrispTuiApp(App[None]):
         self._client: SocketClient | None = None
         self._current_llm: LLMStreamBlock | None = None
         self._pending_tool_blocks: dict[str, ToolCallBlock] = {}
+        self._session_id: str | None = None
         self._config = config
+        self._busy = False
 
     def compose(self) -> ComposeResult:
         """构建 UI：顶部状态栏 + 可滚动事件日志"""
         yield Label("[bold]CrispCode[/bold]  [dim]connecting...[/dim]", id="header")
         yield VerticalScroll(id="log-view")
+        yield ChatTextArea(id="prompt", show_line_numbers=False)
 
     def on_mount(self) -> None:
         """挂载后启动 socket 连接 worker"""
         self.run_worker(self._socket_loop(), exclusive=True, name="socket")
+        prompt = self.query_one("#prompt", ChatTextArea)
+        prompt.disabled = True
+        prompt.border_title = "connecting..."
+
+    async def action_quit(self) -> None:
+        if self._client is not None and self._session_id is not None:
+            try:
+                await self._client.send_command(
+                    "session.close", {"session_id": self._session_id}
+                )
+            except (IpcError, RuntimeError, OSError):
+                self._append(
+                    Static("[yellow]warning: failed to close session[/yellow]")
+                )
+        self.exit()
+
+    async def on_chat_text_area_submitted(self, event: ChatTextArea.Submitted) -> None:
+        """将输入框提交内容发送给当前 chat session"""
+        content = event.value.strip()
+        if not content:
+            return
+        if self._client is None or self._session_id is None or self._busy:
+            self._append(
+                Static("[yellow]agent busy or disconnected[/yellow]"),
+                classes="log-line",
+            )
+            return
+        self._busy = True
+        prompt = event.text_area
+        prompt.text = ""
+        prompt.disabled = True
+        prompt.border_title = "agent is working"
+        self._update_header("running")
+
+        try:
+            await self._client.send_command(
+                "session.send_message",
+                {"session_id": self._session_id, "content": content},
+            )
+        except IpcError as e:
+            self._busy = False
+            prompt.disabled = False
+            prompt.border_title = (
+                "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+            )
+            self._update_header("ready")
+            self._append(Static(f"[red]send error: {e}[/red]"), classes="log-line")
+
+    def _prompt(self) -> ChatTextArea | None:
+        """安全获取输入框，便于组件测试中未挂载时跳过 UI 操作"""
+        try:
+            return self.query_one("#prompt", ChatTextArea)
+        except NoMatches:
+            return None
+
+    def _update_header(self, state: str) -> None:
+        """根据连接和运行状态刷新顶部标题"""
+        try:
+            header = self.query_one("#header", Label)
+        except NoMatches:
+            return
+        session = f"  [dim]{self._session_id}[/dim]" if self._session_id else ""
+        color = {
+            "ready": "green",
+            "running": "yellow",
+            "disconnected": "red",
+            "connecting": "dim",
+        }.get(state, "dim")
+
+        header.update(
+            f"[bold]CrispCode[/bold]  [dim]{self._host}:{self._port}[/dim]"
+            f"{session}  [{color}]{state}[/{color}]"
+        )
 
     def _append(self, widget: Widget) -> None:
         """向日志视图追加一个 widget 并滚动到底部"""
@@ -207,22 +351,18 @@ class CrispTuiApp(App[None]):
             try:
                 await client.connect()
             except (ConnectionRefusedError, OSError):
-                header.update(
-                    "[bold]CrispCode[/bold] [red]not connected - retrying...[/red]"
-                )
+                self._update_header("disconnected")
                 await asyncio.sleep(2)
                 continue
             self._client = client
-            header.update(
-                f"[bold]CrispCode[/bold] [dim]{self._host}:{self._port}[/dim]"
-            )
+            self._update_header("connecting")
             loop_task = asyncio.create_task(client.run_event_loop())
 
             async def on_event(event: dict[str, Any]) -> None:
                 self._handle_event(event)
 
             client.on_event(on_event)
-
+            prompt = self._prompt()
             try:
                 params: dict[str, Any] = {
                     "topics": [
@@ -232,12 +372,25 @@ class CrispTuiApp(App[None]):
                         "llm.token",
                         "llm.usage",
                         "log.*",
+                        "session.*",
                     ],
                     "scope": "global",
                 }
                 if self._replayed_runs_id is not None:
                     params["replayed_from_run"] = self._replayed_runs_id
                 await client.send_command("event.subscribe", params)
+                created = await client.send_command("session.create", {"mode": "chat"})
+                self._session_id = str(created["session_id"])
+
+                if prompt is not None:
+                    prompt.disabled = False
+                    prompt.border_title = (
+                        "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                    )
+
+                    prompt.focus()
+                self._update_header("ready")
+
                 await loop_task
             except IpcError as e:
                 header.update(
@@ -247,12 +400,14 @@ class CrispTuiApp(App[None]):
                 if not loop_task.done():
                     loop_task.cancel()
                 self._client = None
+                self._session_id = None
+                if prompt is not None:
+                    prompt.disabled = True
+                    prompt.border_title = "disconnected, retrying..."
                 self._break_llm()
                 await client.close()
 
-            header.update(
-                "[bold]CrispCode[/bold]  [dim]disconnected — retrying...[/dim]"
-            )
+            self._update_header("disconnected")
             await asyncio.sleep(2)
 
     def _handle_event(self, event: dict[str, Any]) -> None:
@@ -267,8 +422,26 @@ class CrispTuiApp(App[None]):
             return
 
         self._break_llm()
+        if t in ("session.resumed", "session.idle"):
+            self._busy = False
+            prompt = self._prompt()
+            if prompt is not None:
+                prompt.disabled = False
+                prompt.border_title = (
+                    "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                )
 
-        if t == "run.started":
+                prompt.focus()
+            self._update_header("ready")
+        elif t == "session.closed":
+            self._busy = False
+            prompt = self._prompt()
+            if prompt is not None:
+                prompt.disabled = True
+                prompt.border_title = "session closed"
+            self._update_header("disconnected")
+
+        elif t == "run.started":
             runs_id = event.get("runs_id", "")
             goal = event.get("goal", "")
             self._append(
@@ -340,15 +513,16 @@ class CrispTuiApp(App[None]):
             self._append(Static("-" * (self.size.width - 10)))
 
         elif t == "llm.usage":
-            self._append(
-                Static(
-                    f"[dim]   tokens  "
-                    f"in={event.get('input_tokens')} "
-                    f"out={event.get('output_tokens')} "
-                    f"cache={event.get('cache_read_input_tokens')}[/dim]",
-                    classes="usage",
+            if self._config.tui_config.tokens_enabled:
+                self._append(
+                    Static(
+                        f"[dim]   tokens  "
+                        f"in={event.get('input_tokens')} "
+                        f"out={event.get('output_tokens')} "
+                        f"cache={event.get('cache_read_input_tokens')}[/dim]",
+                        classes="usage",
+                    )
                 )
-            )
 
         elif t == "log.line":
             level = event.get("level", "INFO")

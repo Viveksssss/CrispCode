@@ -20,17 +20,26 @@ from crispcode.core.bus.commands import (
     AgentRunResult,
     EventSubscribeCommand,
     EventSubscribeResult,
+    SessionCloseCommand,
+    SessionCloseResult,
+    SessionCreateCommand,
+    SessionCreateResult,
+    SessionGetHistoryCommand,
+    SessionGetHistoryResult,
+    SessionSendMessageCommand,
+    SessionSendMessageResult,
 )
 from crispcode.core.bus.envelope import EventPushEnvelope
 from crispcode.core.config import CrispConfig, CrispConfig, get_config
 from crispcode.core.events.bus import EventBus
 from crispcode.core.logging import setup_logging
 from crispcode.core.runner import AgentRunner
-from crispcode.core.runs import events_file, new_runs_id
+from crispcode.core.runs import events_file, new_runs_id, run_dir_old
 from crispcode.core.trace.record import TraceRecord
 from crispcode.core.trace.writer import TraceWriter
 from crispcode.core.transport.ipc_broadcaster import IpcEventBroadcaster
 from crispcode.core.transport.socket_server import SocketServer, get_connection_writer
+from crispcode.core.session import SessionManager, SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +56,7 @@ class CoreApp:
         self._config: CrispConfig | None = None
         self._trace: TraceWriter | None = None
         self._running_runs: set[asyncio.Task[None]] = set()
+        self._sessions: SessionManager | None = None
 
     async def _ping_handler(self, params: dict[str, Any]) -> PongResult:
         """处理 core.ping 请求，返回服务版本、运行时长和接收时间"""
@@ -74,14 +84,52 @@ class CoreApp:
 
     async def _agent_run_handler(self, params: dict[str, Any]) -> AgentRunResult:
         """启动一次 agent run：立即返回 runs_id，后台 task 执行 runner.run()"""
-        assert self._config is not None
+        assert self._sessions is not None
         cmd = AgentRunCommand.model_validate(params)
+        session = await self._sessions.create(mode="one_shot", title=cmd.goal[:30])
         runs_id = new_runs_id()
-        runner = AgentRunner(self._config, bus=self._bus, trace=self._trace)
-        run_task = asyncio.create_task(runner.run(cmd.goal, runs_id=runs_id))
+        run_task = asyncio.create_task(
+            self._sessions.send_message(session.id, cmd.goal, runs_id=runs_id)
+        )
         self._running_runs.add(run_task)
         run_task.add_done_callback(self._running_runs.discard)
         return AgentRunResult(runs_id=runs_id)
+
+    async def _session_create_handler(
+        self, params: dict[str, Any]
+    ) -> SessionCreateResult:
+        """创建 chat 或 one_shot session，并返回 session_id"""
+        assert self._sessions is not None
+        cmd = SessionCreateCommand.model_validate(params)
+        session = await self._sessions.create(mode=cmd.mode, title=cmd.title)
+        return SessionCreateResult(session_id=session.id, status=session.status)
+
+    async def _session_send_handler(
+        self, params: dict[str, Any]
+    ) -> SessionSendMessageResult:
+        """向 session 发送一条用户消息并同步等待对应 run 完成"""
+        assert self._sessions is not None
+        cmd = SessionSendMessageCommand.model_validate(params)
+        run_id = await self._sessions.send_message(cmd.session_id, cmd.content)
+        return SessionSendMessageResult(run_id=run_id)
+
+    async def _session_history_handler(
+        self, params: dict[str, Any]
+    ) -> SessionGetHistoryResult:
+        """返回 session 的完整 Anthropic messages 历史"""
+        assert self._sessions is not None
+        cmd = SessionGetHistoryCommand.model_validate(params)
+        messages = await self._sessions.get_history(cmd.session_id)
+        return SessionGetHistoryResult(messages=messages)
+
+    async def _session_close_handler(
+        self, params: dict[str, Any]
+    ) -> SessionCloseResult:
+        """关闭 session 并返回 closed 状态"""
+        assert self._sessions is not None
+        cmd = SessionCloseCommand.model_validate(params)
+        await self._sessions.close(cmd.session_id)
+        return SessionCloseResult(status="closed")
 
     async def _subscribe_handler(self, params: dict[str, Any]) -> EventSubscribeResult:
         """注册客户端事件订阅，可选先回放 events.jsonl 历史再接收实时流"""
@@ -103,7 +151,15 @@ class CoreApp:
     async def _replay_events(
         self, runs_id: str, writer: asyncio.StreamWriter, topics: list[str]
     ) -> int:
-        path = events_file(runs_id)
+        path = run_dir_old(runs_id) / "events.jsonl"
+        if not path.exists():
+            for candidate in (
+                Path("~/.crispcode/session")
+                .expanduser()
+                .glob(f"*/runs/{runs_id}/events.jsonl")
+            ):
+                path = candidate
+                break
         if not path.exists():
             return 0
 
@@ -139,6 +195,15 @@ class CoreApp:
 
         self._broadcaster = IpcEventBroadcaster(trace=self._trace)
         self._bus.subscribe(self._broadcaster.handle)
+        session_root = Path("~/.crispcode/session").expanduser()
+        store = SessionStore(session_root)
+        self._sessions = SessionManager(
+            store,
+            runner_factory=lambda: AgentRunner(
+                self._config, bus=self._bus, trace=self._trace
+            ),
+            bus=self._bus,
+        )
 
         server = SocketServer(
             self._config.host, self._config.port, self._broadcaster, trace=self._trace
@@ -146,6 +211,10 @@ class CoreApp:
         server.register("core.ping", self._ping_handler)
         server.register("agent.run", self._agent_run_handler)
         server.register("event.subscribe", self._subscribe_handler)
+        server.register("session.create", self._session_create_handler)
+        server.register("session.send_message", self._session_send_handler)
+        server.register("session.get_history", self._session_history_handler)
+        server.register("session.close", self._session_close_handler)
 
         addr = await server.start()
         logger.info("crisp-core %s listening addr=%s", crispcode.__version__, addr)

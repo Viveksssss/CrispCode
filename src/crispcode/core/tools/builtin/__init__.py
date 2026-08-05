@@ -6,6 +6,7 @@ from crispcode.core.tools.builtin.task_get import TaskGetTool
 from crispcode.core.tools.builtin.task_list import TaskListTool
 from crispcode.core.tools.builtin.task_update import TaskUpdateTool
 from crispcode.core.tools.builtin.write_file import WriteFileTool
+from crispcode.core.tools.builtin.note_save import NoteSaveTool
 
 __all__ = [
     "BashTool",
@@ -16,4 +17,5 @@ __all__ = [
     "TaskListTool",
     "TaskUpdateTool",
     "WriteFileTool",
+    "NoteSaveTool",
 ]

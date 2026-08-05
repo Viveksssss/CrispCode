@@ -51,6 +51,11 @@ class LlmConfig:
 
 
 @dataclass
+class TuiConfig:
+    tokens_enabled: bool = True
+
+
+@dataclass
 class CrispConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -59,6 +64,7 @@ class CrispConfig:
     llm: LlmConfig = field(default_factory=LlmConfig)
     config: BaseConfig = field(default_factory=BaseConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
+    tui_config: TuiConfig = field(default_factory=TuiConfig)
 
 
 def get_config() -> CrispConfig:
@@ -89,7 +95,15 @@ def get_config() -> CrispConfig:
 
 def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
     # print(f"DEBUG: data = {data}")  # 添加这行
-    unknown = set(data.keys()) - {"config", "core", "logging", "trace", "agent", "llm"}
+    unknown = set(data.keys()) - {
+        "config",
+        "core",
+        "logging",
+        "trace",
+        "agent",
+        "llm",
+        "tui",
+    }
     if unknown:
         raise SystemExit(
             f"Unknown top-level config keys:{', '.join(sorted(unknown))}\nNow only support core,logging,trace"
@@ -194,6 +208,28 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
                 if not isinstance(val, str):
                     raise SystemExit(f"Config error: trace.{key} must be a string")
                 setattr(config.trace, key, val)
+    if "tui" in data:
+        tui = data["tui"]
+        if not isinstance(tui, dict):
+            raise SystemExit("Config error: [tui] must be a table")
+        unknown_trace: set[str] = set(trace.keys()) - {
+            "tokens_enabled",
+        }
+        for key in ["tokens_enabled"]:
+            if key in tui:
+                val = tui[key]
+                if isinstance(val, bool):
+                    config.tui_config.tokens_enabled = val
+                elif isinstance(val, str):
+                    config.tui_config.tokens_enabled = val.lower() not in (
+                        "0",
+                        "false",
+                        "no",
+                    )
+                else:
+                    raise SystemExit(
+                        f"Config error: tui.tokens_enabled must be a boolean or string"
+                    )
 
 
 def _apply_env(config: CrispConfig) -> None:
@@ -272,6 +308,13 @@ def _apply_env(config: CrispConfig) -> None:
     trace_payload = os.environ.get("CRISP_TRACE_INCLUDE_LLM_PAYLOAD")
     if trace_payload is not None:
         config.trace.include_llm_payload = trace_payload.lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+    tokens_enabled = os.environ.get("CRISP_TUI_TOKENS_ENABLED")
+    if tokens_enabled is not None:
+        config.tui_config.tokens_enabled = tokens_enabled.lower() not in (
             "0",
             "false",
             "no",
