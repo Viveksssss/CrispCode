@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import Field
+
+from pydantic import BaseModel, ConfigDict
 from crispcode.core.tools.base import BaseTool, ToolResult
 
 _DEFAULT_TIMEOUT = 60
 _MAX_OUTPUT_BYTES = 64 * 1024  # 64 KB
 
 
+class BashParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    command: str
+    timeout: int = Field(default=_DEFAULT_TIMEOUT, ge=1, le=120)
+
+
 class BashTool(BaseTool):
+    params_model = BashParams
     name = "bash"
     description = (
         "Execute a shell command and return its output (stdout + stderr combined). "
@@ -32,8 +42,9 @@ class BashTool(BaseTool):
 
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         """在子进程中执行 shell 命令，返回 stdout + stderr 的组合输出。"""
-        command = str(params.get("command", ""))
-        timeout = min(int(str(params.get("timeout", _DEFAULT_TIMEOUT))), 120)
+        p = BashParams.model_validate(params)
+        command = p.command
+        timeout = p.timeout
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,

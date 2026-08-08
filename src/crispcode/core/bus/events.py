@@ -64,10 +64,11 @@ class ToolCallFailedEvent(BaseModel):
     runs_id: str
     tool_use_id: str
     tool_name: str
-    error_type: str  # "runtime_error" | "timeout" | "schema_error"
+    error_class: str  # "runtime_error" | "timeout" | "schema_error"
     error_message: str
     elapsed_ms: int
     ts: str
+    attemp: int = 1
 
 
 class LlmTokenEvent(BaseModel):
@@ -137,6 +138,33 @@ class SessionClosedEvent(BaseModel):
     ts: str
 
 
+class PermissionRequestedEvent(BaseModel):
+    type: Literal["permission.requested"] = "permission.requested"
+    runs_id: str
+    tool_use_id: str
+    tool_name: str
+    params: dict[str, Any]
+    param_preview: str
+    session_id: str
+    ts: str
+
+
+class PermissionGrantedEvent(BaseModel):
+    type: Literal["permission.granted"] = "permission.granted"
+    runs_id: str
+    tool_use_id: str
+    decision: str  # "allow_once" | "always_allow" | "auto_allow"
+    ts: str
+
+
+class PermissionDeniedEvent(BaseModel):
+    type: Literal["permission.denied"] = "permission.denied"
+    runs_id: str
+    tool_use_id: str
+    decision: str
+    ts: str
+
+
 Event = Annotated[
     CoreStartedEvent
     | RunStartedEvent
@@ -154,6 +182,9 @@ Event = Annotated[
     | SessionMessageReceivedEvent
     | SessionIdleEvent
     | SessionResumedEvent
-    | SessionClosedEvent,
+    | SessionClosedEvent
+    | PermissionRequestedEvent
+    | PermissionGrantedEvent
+    | PermissionDeniedEvent,
     Discriminator("type"),
 ]

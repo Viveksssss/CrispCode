@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 from crispcode.core.tools.base import BaseTool, ToolResult
 
 _MAX_BYTES = 512 * 1024  # 512 KB
 
 
+class ReadFileParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    path: str
+
+
 class ReadFileTool(BaseTool):
+    params_model = ReadFileParams
     name = "read_file"
     description = (
         "Read the text content of a file. "
@@ -26,7 +34,7 @@ class ReadFileTool(BaseTool):
 
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         """读取文件内容;超过512KB阶段;禁止 .. 路径遍历"""
-        path_str = str(params["path"])
+        path_str = ReadFileParams.model_validate(params).path
         path = Path(path_str)
         if ".." in path.parts:
             raise PermissionError(f"path traversal not allowed: {path_str}")

@@ -56,6 +56,11 @@ class TuiConfig:
 
 
 @dataclass
+class PermissionConfig:
+    timeout_s: float = 60.0  # 审批超时秒数；0 表示不超时
+
+
+@dataclass
 class CrispConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -65,6 +70,7 @@ class CrispConfig:
     config: BaseConfig = field(default_factory=BaseConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
     tui_config: TuiConfig = field(default_factory=TuiConfig)
+    permission: PermissionConfig = field(default_factory=PermissionConfig)
 
 
 def get_config() -> CrispConfig:
@@ -103,6 +109,7 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
         "agent",
         "llm",
         "tui",
+        "permission",
     }
     if unknown:
         raise SystemExit(
@@ -231,6 +238,23 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
                         f"Config error: tui.tokens_enabled must be a boolean or string"
                     )
 
+    if "permission" in data:
+        permission = data["permission"]
+        if not isinstance(permission, dict):
+            raise SystemExit("Config error: [permission] must be a table")
+        unknown_trace: set[str] = set(trace.keys()) - {
+            "timeout_s",
+        }
+        for key in ["timeout_s"]:
+            if key in permission:
+                val = permission[key]
+                if isinstance(val, int):
+                    config.permission.timeout_s = val
+                else:
+                    raise SystemExit(
+                        f"Config error: permission.timeout_s must be a integer"
+                    )
+
 
 def _apply_env(config: CrispConfig) -> None:
     host = os.environ.get("CRISP_HOST")
@@ -319,3 +343,17 @@ def _apply_env(config: CrispConfig) -> None:
             "false",
             "no",
         )
+
+    perm_timeout = os.environ.get("CRISP_PERMISSION_TIMEOUT_S")
+    if perm_timeout is not None:
+        try:
+            val = float(perm_timeout)
+            if val < 0:
+                raise SystemExit(
+                    f"Config error: CRISP_PERMISSION_TIMEOUT_S must be >= 0, got: {perm_timeout!r}"
+                )
+            config.permission.timeout_s = val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: CRISP_PERMISSION_TIMEOUT_S must be a number, got: {perm_timeout!r}"
+            )

@@ -2,12 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict
+
 from crispcode.core.tools.base import BaseTool, ToolResult
 
 _MAX_BYTES = 1 * 1024 * 1024  # 1 MB
 
 
+class WriteFileParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    path: str
+    content: str
+
+
 class WriteFileTool(BaseTool):
+    params_model = WriteFileParams
     name = "write_file"
     description = (
         "Write text content to a file, creating it (and any parent directories) if it "
@@ -33,8 +42,10 @@ class WriteFileTool(BaseTool):
 
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         """写入文件内容；超 1MB 拒绝；禁止 .. 路径遍历；自动创建父目录"""
-        path_str = str(params.get("path", ""))
-        content = str(params.get("content", ""))
+        p = WriteFileParams.model_validate(params)
+        path_str = p.path
+        content = p.content
+        
         if ".." in path_str:
             raise PermissionError(f"Path traversal is not allowed: {path_str}.")
 

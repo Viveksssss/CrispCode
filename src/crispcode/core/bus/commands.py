@@ -75,6 +75,16 @@ class SessionCloseResult(BaseModel):
     status: SessionStatus
 
 
+class PermissionRespondCommand(BaseModel):
+    type: Literal["permission.respond"] = "permission.respond"
+    tool_use_id: str
+    decision: str  # "allow_once" | "always_allow" | "deny_once" | "always_deny"
+
+
+class PermissionRespondResult(BaseModel):
+    ok: bool = True
+
+
 Command = Annotated[
     PingCommand
     | AgentRunCommand
@@ -82,6 +92,7 @@ Command = Annotated[
     | SessionCreateCommand
     | SessionSendMessageCommand
     | SessionGetHistoryCommand
-    | SessionCloseCommand,
+    | SessionCloseCommand
+    | PermissionRespondCommand,
     Discriminator("type"),
 ]

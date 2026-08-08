@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import Field
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from crispcode.core.tools.base import BaseTool, ToolResult
 
@@ -8,7 +11,14 @@ _MAX_DEPTH = 4
 _MAX_ENTRIES = 200
 
 
+class ListDirParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    path: str = "."
+    max_depth: int = Field(default=2, ge=1, le=_MAX_DEPTH)
+
+
 class ListDirTool(BaseTool):
+    params_model = ListDirParams
     name = "list_dir"
     description = (
         "List the contents of a directory as a tree. "
@@ -33,8 +43,9 @@ class ListDirTool(BaseTool):
 
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         """以树状格式列出目录内容，深度和条数有上限"""
-        path_str = str(params.get("path", "."))
-        max_depth = min(int(str(params.get("max_depth", 2))), _MAX_DEPTH)
+        p = ListDirParams.model_validate(params)
+        path_str = p.path
+        max_depth = p.max_depth
 
         if ".." in path_str:
             raise PermissionError(f"Path traversal is not allowed: {path_str}.")
