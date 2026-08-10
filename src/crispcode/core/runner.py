@@ -14,6 +14,7 @@ from crispcode.core.events.bus import EventBus, EventHandler
 from crispcode.core.events.writer import EventWriter
 from crispcode.core.llm.provider import AnthropicProvider, LLMProvider
 from crispcode.core.loop import AgentLoop
+from crispcode.core.permissions.manager import PermissionManager
 from crispcode.core.runs import (
     RUNS_DIR,
     new_runs_id,
@@ -61,6 +62,7 @@ class AgentRunner:
         extra_handlers: list[EventHandler] | None = None,
         runs_dir: Path | None = None,
         trace: TraceWriter | None = None,
+        permission_manager: PermissionManager | None = None,
     ) -> None:
         self._config = config
         self._provider = provider
@@ -68,6 +70,7 @@ class AgentRunner:
         self._extra_handler = extra_handlers or []
         self._runs_dir = runs_dir or RUNS_DIR
         self._trace = trace
+        self._permission_manager = permission_manager
 
     def _build_registry(
         self,
@@ -161,6 +164,8 @@ class AgentRunner:
                     provider=provider,
                     registry=registry,
                     bus=bus,
+                    permission_manager=self._permission_manager,
+                    session_id=session.id if session is not None else "",
                 )
                 await loop.run(context)
             except asyncio.CancelledError:

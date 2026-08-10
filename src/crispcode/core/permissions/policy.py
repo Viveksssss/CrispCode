@@ -21,7 +21,7 @@ OUTSIDE_CWD_HEURISTICS: list[str] = [
     r"(^|\s|;|$$|\|\|)cd(\s|$)",
 ]
 
-_OUTSIDE_CWD_RE = list[re.Pattern[str]] = [
+_OUTSIDE_CWD_RE : list[re.Pattern[str]] = [
     re.compile(p) for p in OUTSIDE_CWD_HEURISTICS
 ]
 

@@ -7,11 +7,19 @@ from typing import Any
 from crispcode.core.config import CrispConfig
 from crispcode.core.transport.socket_client import IpcError, SocketClient
 
+_DECISION_MAP: dict[str, str] = {
+    "y": "allow_once",
+    "a": "always_allow",
+    "n": "deny_once",
+    "d": "always_deny",
+}
+
 
 class ChatPrinter:
     # 初始化 chat 模式的流式输出状态
     def __init__(self) -> None:
         self._inline = False
+        self._pending_permission_id: str | None = None
 
     # 若当前 LLM token 尚未换行，则补一个换行
     def _ensure_newline(self) -> None:
@@ -25,11 +33,20 @@ class ChatPrinter:
         if t == "llm.token":
             print(event.get("token", ""), end="", flush=True)
             self._inline = True
+        elif t == "permission.requested":
+            self._ensure_newline()
+            tool_name = str(event.get("tool_name", ""))
+            param_preview = str(event.get("param_preview", ""))
+            tool_use_id = str(event.get("tool_use_id", ""))
+            print(f"[permission] {tool_name}  {param_preview}")
+            print("  y=allow once  a=always allow  n=deny once  d=always deny")
+            self._pending_permission_id = tool_use_id
         elif t == "tool.call_started":
             self._ensure_newline()
             print(f"[tool] {event.get('tool_name', '')}")
         elif t == "session.idle":
             self._ensure_newline()
+            self._pending_permission_id = None
             print("[waiting for input]")
         elif t == "session.closed":
             self._ensure_newline()
@@ -72,8 +89,23 @@ async def _chat_async(config: CrispConfig) -> int:
                 line = await _readline("> ")
             except (EOFError, KeyboardInterrupt):
                 break
-            content = line.strip() 
+            content = line.strip()
             if not content:
+                continue
+            if printer._pending_permission_id:
+                decision = _DECISION_MAP.get(content.lower())
+                if decision is None:
+                    print(
+                        "  enter y (allow once), a (always allow), "
+                        "n (deny once), d (always deny)"
+                    )
+                    continue
+                tool_use_id = printer._pending_permission_id
+                printer._pending_permission_id = None
+                await client.send_command(
+                    "permission.respond",
+                    {"tool_use_id": tool_use_id, "decision": decision},
+                )
                 continue
             await client.send_command(
                 "session.send_message",

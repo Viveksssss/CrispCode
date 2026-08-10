@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from asyncio import events
 import json
+import logging
 from typing import Any
 from textual.markup import escape
 from textual.app import App, ComposeResult
@@ -14,6 +15,8 @@ from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.css.query import NoMatches
 from crispcode.core.transport.socket_client import IpcError, SocketClient
+
+logger = logging.getLogger(__name__)
 
 
 def _preview(s: str, n: int) -> str:
@@ -157,6 +160,176 @@ class ToolCallBlock(Static):
             self.add_class("expanded")
 
 
+class PermissionSelect(Static):
+    """内联权限选择控件：挂载在日志流中，键盘焦点无需 ModalScreen。"""
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    PermissionSelect{
+        height:auto;
+        padding: 0 2;
+        margin-bottom: 1;
+    }
+    """
+
+    _CHOICES: tuple[tuple[str, str, str], ...] = (
+        ("allow_once", "Allow once", "y / 1"),
+        ("always_allow", "Always allow", "a / 2"),
+        ("deny_once", "Deny", "n / 3"),
+        ("always_deny", "Always deny", "d / 4"),
+    )
+    _KEY_MAP: dict[str, str] = {
+        "y": "allow_once",
+        "1": "allow_once",
+        "a": "always_allow",
+        "2": "always_allow",
+        "n": "deny_once",
+        "3": "deny_once",
+        "d": "always_deny",
+        "4": "always_deny",
+    }
+
+    class Decided(Message):
+        """# 用户作出权限决策时发布，携带工具 ID 和决策字符串"""
+
+        def __init__(
+            self, widget: "PermissionSelect", tool_use_id: str, decision: str
+        ) -> None:
+            """
+            "PermissionSelect" ✅ 延迟求值，Python 会在运行时再解析,因为此时PermissionSelect还没完全创建.
+            初始化决策消息，存储控件引用、工具 ID 和决策
+            """
+            self.widget = widget
+            self.tool_use_id = tool_use_id
+            self.decision = decision
+            super().__init__()
+
+    def __init__(self, tool_use_id: str) -> None:
+        """初始化控件，存储工具 ID（用于 IPC 回复）"""
+        super().__init__()
+        self._tool_use_id = tool_use_id
+        self._cursor = 0
+
+    def on_mount(self) -> None:
+        self.update(self._render_ui())
+        self.focus()
+        logger.debug(
+            "PermissionSelect.on_mout can_focus=%s focusd_after=%r",
+            self.can_focus,
+            self.app.focused,
+        )
+        self.app.call_after_refresh(self._log_deferred_focus)
+
+    def _log_deferred_focus(self) -> None:
+        """在下一帧记录焦点是否真正转移到本控件"""
+        logger.debug(
+            "PermissionSelect.deferred_focus  app.focused=%r  has_focus=%s  focusable=%s",
+            self.app.focused,
+            self.has_focus,
+            self.focusable,
+        )
+
+    # 焦点到达时记录，用于确认 focus() 是否真正生效
+    def on_focus(self, event: events.Focus) -> None:
+        logger.debug(
+            "PermissionSelect.on_focus  has_focus=%s  app.focused=%r",
+            self.has_focus,
+            self.app.focused,
+        )
+
+    # 焦点离开时记录，用于追踪是否被其他控件抢走焦点
+    def on_blur(self, event: events.Blur) -> None:
+        logger.debug("PermissionSelect.on_blur  app.focused=%r", self.app.focused)
+
+    # 生成带光标高亮的选项列表文本
+    def _render_ui(self) -> str:
+        lines: list[str] = []
+        for i, (_, label, key_hint) in enumerate(self._CHOICES):
+            if i == self._cursor:
+                lines.append(
+                    f"  [bold cyan]❯ {label}[/bold cyan]  [dim]{key_hint}[/dim]"
+                )
+            else:
+                lines.append(f"    {label}  [dim]{key_hint}[/dim]")
+        lines.append("[dim]  ↑↓ navigate   enter confirm[/dim]")
+        return "\n".join(lines)
+
+    # 方向键导航；快捷键直接选择；enter 确认光标位置
+    def on_key(self, event: events.Key) -> None:
+        logger.debug(
+            "PermissionSelect.on_key  key=%r  char=%r", event.key, event.character
+        )
+        key = event.key
+        if key in ("up", "k"):
+            event.stop()
+            self._cursor = (self._cursor - 1) % len(self._CHOICES)
+            self.update(self._render_ui())
+        elif key in ("down", "j"):
+            event.stop()
+            self._cursor = (self._cursor + 1) % len(self._CHOICES)
+            self.update(self._render_ui())
+        elif key == "enter":
+            event.stop()
+            self._pick(self._CHOICES[self._cursor][0])
+        else:
+            decision = self._KEY_MAP.get(key)
+            if decision is not None:
+                event.stop()
+                self._pick(decision)
+
+    # 发布决策消息，由宿主 App 负责 IPC 回复和控件清理
+    def _pick(self, decision: str) -> None:
+        logger.debug("PermissionSelect._pick  decision=%s", decision)
+        self.post_message(self.Decided(self, self._tool_use_id, decision))
+
+
+class PermissionBlock(Static):
+    """日志里的权限审批摘要"""
+
+    _LABEL_MAP: dict[str, str] = {
+        "allow_once": "allowed (once)",
+        "always_allow": "always allowed",
+        "deny_once": "denied",
+        "always_deny": "always denied",
+        "timeout": "⏱ timed out",
+    }
+    LABEL_MAP = _LABEL_MAP
+
+    # 子类提交消息：用户作出权限决策时发布
+    class Resolved(Message):
+        def __init__(self, block: PermissionBlock, decision: str) -> None:
+            self.block = block
+            self.decision = decision
+            super().__init__()
+
+    # 初始化审批块，记录工具 ID、名称和参数预览
+    def __init__(self, tool_use_id: str, tool_name: str, param_preview: str) -> None:
+        self._tool_use_id = tool_use_id
+        self._tool_name = tool_name
+        self._param_preview = param_preview
+        self._resolved = False
+        super().__init__(self._pending_text(), classes="log-line")
+
+    def _pending_text(self) -> str:
+        preview = f"  [dim]{self._param_preview}[/dim]" if self._param_preview else ""
+        return f"[bold red]? permission[/bold red]  [bold]{self._tool_name}[/bold]{preview}"
+
+    # 将块收缩为单行摘要并发布 Resolved 消息
+    def _resolve(self, decision: str) -> None:
+        if self._resolved:
+            return
+        self._resolved = True
+        allowed = decision in ("allow_once", "always_allow")
+        icon = "[bold green]✓[/bold green]" if allowed else "[bold red]✗[/bold red]"
+        label = self._LABEL_MAP.get(decision, decision)
+        preview = f"  [dim]{self._param_preview}[/dim]" if self._param_preview else ""
+        self.update(
+            f"{icon} permission  [bold]{self._tool_name}[/bold]{preview}  [dim]{label}[/dim]"
+        )
+        self.post_message(self.Resolved(self, decision))
+
+
 class ChatTextArea(TextArea):
     """支持Enter提交,Cmd/Shift/+Enter换行"""
 
@@ -245,6 +418,7 @@ class CrispTuiApp(App[None]):
         self._session_id: str | None = None
         self._config = config
         self._busy = False
+        self._pending_permission_blocks: dict[str, PermissionBlock] = {}
 
     def compose(self) -> ComposeResult:
         """构建 UI：顶部状态栏 + 可滚动事件日志"""
@@ -258,6 +432,66 @@ class CrispTuiApp(App[None]):
         prompt = self.query_one("#prompt", ChatTextArea)
         prompt.disabled = True
         prompt.border_title = "connecting..."
+
+    def on_key(self, event: events.Key) -> None:
+        logger.debug("App.on_key  key=%r  focused=%r", event.key, self.focused)
+        if not self._pending_permission_blocks:
+            return
+        try:
+            select = self.query_one(PermissionSelect)
+            if select.has_focus:
+                return  # PermissionSelect 有焦点时自行处理，事件不会冒泡到这里
+            key = event.key
+            decision = PermissionSelect._KEY_MAP.get(key)
+            if decision:
+                event.stop()
+                select._pick(decision)
+            elif key in ("up", "k"):
+                event.stop()
+                select._cursor = (select._cursor - 1) % len(PermissionSelect._CHOICES)
+                select.update(select._render_ui())
+            elif key in ("down", "j"):
+                event.stop()
+                select._cursor = (select._cursor + 1) % len(PermissionSelect._CHOICES)
+                select.update(select._render_ui())
+            elif key == "enter":
+                event.stop()
+                select._pick(PermissionSelect._CHOICES[select._cursor][0])
+        except Exception:
+            pass
+
+    async def on_permission_select_decided(self, msg: PermissionSelect.Decided) -> None:
+        tool_use_id = msg.tool_use_id
+        decision = msg.decision
+        logger.info(
+            "permission decided tool_use_id=%s decision=%s", tool_use_id, decision
+        )
+        try:
+            msg.widget.remove()
+            perm_block = self._pending_permission_blocks.pop(tool_use_id, None)
+            if perm_block is not None:
+                perm_block._resolve(decision)
+            if self._client is not None:
+                try:
+                    await self._client.send_command(
+                        "permission.respond",
+                        {"tool_use_id": tool_use_id, "decision": decision},
+                    )
+                except (IpcError, RuntimeError, OSError):
+                    pass
+            if not self._pending_permission_blocks:
+                p = self._prompt()
+                if p is not None:
+                    p.disabled = False
+                    p.read_only = False
+                    p.border_title = (
+                        "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                    )
+                    p.focus()
+        except Exception:
+            logger.exception(
+                "on_permission_select_decided failed tool_use_id=%s", tool_use_id
+            )
 
     async def action_quit(self) -> None:
         if self._client is not None and self._session_id is not None:
@@ -289,19 +523,9 @@ class CrispTuiApp(App[None]):
         prompt.border_title = "agent is working"
         self._update_header("running")
 
-        try:
-            await self._client.send_command(
-                "session.send_message",
-                {"session_id": self._session_id, "content": content},
-            )
-        except IpcError as e:
-            self._busy = False
-            prompt.disabled = False
-            prompt.border_title = (
-                "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
-            )
-            self._update_header("ready")
-            self._append(Static(f"[red]send error: {e}[/red]"), classes="log-line")
+        self.run_worker(
+            self._do_send_message(content), name="send_message", exclusive=False
+        )
 
     def _prompt(self) -> ChatTextArea | None:
         """安全获取输入框，便于组件测试中未挂载时跳过 UI 操作"""
@@ -309,6 +533,26 @@ class CrispTuiApp(App[None]):
             return self.query_one("#prompt", ChatTextArea)
         except NoMatches:
             return None
+
+    async def _do_send_message(self, content: str) -> None:
+        if self._client is None:
+            return
+        try:
+            await self._client.send_command(
+                "session.send_message",
+                {"session_id": self._session_id, "content": content},
+            )
+        except (IpcError, RuntimeError, OSError) as e:
+            self._busy = False
+            prompt = self._prompt()
+            if prompt is not None:
+                prompt.disabled = False
+                prompt.read_only = False
+                prompt.border_title = (
+                    "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                )
+            self._update_header("ready")
+            self._append(Static(f"[red]send error: {e}[/red]", classes="log-line"))
 
     def _update_header(self, state: str) -> None:
         """根据连接和运行状态刷新顶部标题"""
@@ -369,6 +613,7 @@ class CrispTuiApp(App[None]):
                         "run.*",
                         "step.*",
                         "tool.*",
+                        "permission.*",
                         "llm.token",
                         "llm.usage",
                         "log.*",
@@ -411,132 +656,187 @@ class CrispTuiApp(App[None]):
             await asyncio.sleep(2)
 
     def _handle_event(self, event: dict[str, Any]) -> None:
-        t = event.get("type", "")
-        if t == "llm.token":
-            token = event.get("token", "")
-            if self._current_llm is None:
-                llm_block = LLMStreamBlock()
-                self._append(llm_block)
-                self._current_llm = llm_block
-            self._current_llm.append_token(token)
-            return
+        try:
+            t = event.get("type", "")
+            if t == "llm.token":
+                token = event.get("token", "")
+                if self._current_llm is None:
+                    llm_block = LLMStreamBlock()
+                    self._append(llm_block)
+                    self._current_llm = llm_block
+                self._current_llm.append_token(token)
+                return
 
-        self._break_llm()
-        if t in ("session.resumed", "session.idle"):
-            self._busy = False
-            prompt = self._prompt()
-            if prompt is not None:
-                prompt.disabled = False
-                prompt.border_title = (
-                    "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
-                )
+            self._break_llm()
+            if t in ("session.resumed", "session.idle"):
+                self._busy = False
+                prompt = self._prompt()
+                if prompt is not None:
+                    prompt.disabled = False
+                    prompt.read_only = False
+                    prompt.border_title = (
+                        "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                    )
 
-                prompt.focus()
-            self._update_header("ready")
-        elif t == "session.closed":
-            self._busy = False
-            prompt = self._prompt()
-            if prompt is not None:
-                prompt.disabled = True
-                prompt.border_title = "session closed"
-            self._update_header("disconnected")
+                    prompt.focus()
+                self._update_header("ready")
+            elif t == "session.closed":
+                self._busy = False
+                prompt = self._prompt()
+                if prompt is not None:
+                    prompt.disabled = True
+                    prompt.read_only = False
+                    prompt.border_title = "session closed"
+                self._update_header("disconnected")
 
-        elif t == "run.started":
-            runs_id = event.get("runs_id", "")
-            goal = event.get("goal", "")
-            self._append(
-                Static(
-                    f"[bold cyan]▶ run[/bold cyan]  [dim]{runs_id}[/dim]",
-                    classes="run-id",
-                )
-            )
-            self._append(
-                Static(
-                    f"[#FF6699]✴[/#FF6699] [black]{goal}[black]",
-                    classes="run-header",
-                )
-            )
-
-        elif t == "step.started":
-            step = event.get("step", "")
-            self._append(
-                Static(
-                    f"[#00CC33]۞[/#00CC33] [#00CC33]step {step}[/#00CC33]",
-                    classes="step-divider",
-                )
-            )
-
-        elif t == "tool.call_started":
-            tool_use_id = str(event.get("tool_use_id", ""))
-            tool_name = str(event.get("tool_name", ""))
-            params = event.get("params") or {}
-            tc_block = ToolCallBlock(tool_name, params)
-            self._pending_tool_blocks[tool_use_id] = tc_block
-            self._append(tc_block)
-
-        elif t == "tool.call_finished":
-            tool_use_id = str(event.get("tool_use_id", ""))
-            elapsed_ms = int(event.get("elapsed_ms") or 0)
-            output = str(event.get("output") or "")
-            if tool_use_id in self._pending_tool_blocks:
-                tc_done = self._pending_tool_blocks.pop(tool_use_id)
-                tc_done.set_result(output, elapsed_ms)
-
-        elif t == "tool.call_failed":
-            tool_use_id = str(event.get("tool_use_id", ""))
-            elapsed_ms = int(event.get("elapsed_ms") or 0)
-            error_msg = str(event.get("error_message") or "")
-            if tool_use_id in self._pending_tool_blocks:
-                tc_done = self._pending_tool_blocks.pop(tool_use_id)
-                tc_done.set_result(error_msg, elapsed_ms, is_error=True)
-
-        elif t == "run.finished":
-            status = event.get("status", "")
-            steps = event.get("steps", 0)
-            reason = event.get("reason") or ""
-            if status == "success":
+            elif t == "run.started":
+                runs_id = event.get("runs_id", "")
+                goal = event.get("goal", "")
                 self._append(
                     Static(
-                        f"[bold green]✓ completed[/bold green]  [dim]{steps} steps[/dim]",
-                        classes="run-ok",
+                        f"[bold cyan]▶ run[/bold cyan]  [dim]{runs_id}[/dim]",
+                        classes="run-id",
                     )
                 )
-            else:
-                detail = f"  [dim]{reason}[/dim]" if reason else ""
                 self._append(
                     Static(
-                        f"[bold red]✗ failed[/bold red]{detail}  [dim]{steps} steps[/dim]",
-                        classes="run-err",
+                        f"[#FF6699]✴[/#FF6699] [black]{goal}[black]",
+                        classes="run-header",
                     )
                 )
 
-            self._append(Static("-" * (self.size.width - 10)))
-
-        elif t == "llm.usage":
-            if self._config.tui_config.tokens_enabled:
+            elif t == "step.started":
+                step = event.get("step", "")
                 self._append(
                     Static(
-                        f"[dim]   tokens  "
-                        f"in={event.get('input_tokens')} "
-                        f"out={event.get('output_tokens')} "
-                        f"cache={event.get('cache_read_input_tokens')}[/dim]",
-                        classes="usage",
+                        f"[#00CC33]۞[/#00CC33] [#00CC33]step {step}[/#00CC33]",
+                        classes="step-divider",
                     )
                 )
 
-        elif t == "log.line":
-            level = event.get("level", "INFO")
-            color = (
-                "bold red"
-                if level == "ERROR"
-                else ("yellow" if level == "WARNING" else "dim")
-            )
-            self._append(
-                Static(
-                    f"[{color}]{level}[/{color}]  "
-                    f"[dim]{event.get('source', '')}[/dim]  {event.get('message', '')}",
-                    classes="log-line",
+            elif t == "tool.call_started":
+                tool_use_id = str(event.get("tool_use_id", ""))
+                tool_name = str(event.get("tool_name", ""))
+                params = event.get("params") or {}
+                tc_block = ToolCallBlock(tool_name, params)
+                self._pending_tool_blocks[tool_use_id] = tc_block
+                self._append(tc_block)
+
+            elif t == "tool.call_finished":
+                tool_use_id = str(event.get("tool_use_id", ""))
+                elapsed_ms = int(event.get("elapsed_ms") or 0)
+                output = str(event.get("output") or "")
+                if tool_use_id in self._pending_tool_blocks:
+                    tc_done = self._pending_tool_blocks.pop(tool_use_id)
+                    tc_done.set_result(output, elapsed_ms)
+
+            elif t == "tool.call_failed":
+                tool_use_id = str(event.get("tool_use_id", ""))
+                elapsed_ms = int(event.get("elapsed_ms") or 0)
+                error_msg = str(event.get("error_message") or "")
+                if tool_use_id in self._pending_tool_blocks:
+                    tc_done = self._pending_tool_blocks.pop(tool_use_id)
+                    tc_done.set_result(error_msg, elapsed_ms, is_error=True)
+
+            elif t == "run.finished":
+                status = event.get("status", "")
+                steps = event.get("steps", 0)
+                reason = event.get("reason") or ""
+                if status == "success":
+                    self._append(
+                        Static(
+                            f"[bold green]✓ completed[/bold green]  [dim]{steps} steps[/dim]",
+                            classes="run-ok",
+                        )
+                    )
+                else:
+                    detail = f"  [dim]{reason}[/dim]" if reason else ""
+                    self._append(
+                        Static(
+                            f"[bold red]✗ failed[/bold red]{detail}  [dim]{steps} steps[/dim]",
+                            classes="run-err",
+                        )
+                    )
+
+                self._append(Static("-" * (self.size.width - 10)))
+
+            elif t == "llm.usage":
+                if self._config.tui_config.tokens_enabled:
+                    self._append(
+                        Static(
+                            f"[dim]   tokens  "
+                            f"in={event.get('input_tokens')} "
+                            f"out={event.get('output_tokens')} "
+                            f"cache={event.get('cache_read_input_tokens')}[/dim]",
+                            classes="usage",
+                        )
+                    )
+            elif t == "permission.requested":
+                tool_use_id = str(event.get("tool_use_id", ""))
+                tool_name = str(event.get("tool_name", ""))
+                param_preview = str(event.get("param_preview", ""))
+                try:
+                    _focused_repr = repr(self.focused)
+                except Exception:
+                    _focused_repr = "?"
+                logger.info(
+                    "permission.requested tool=%s id=%s  app.focused=%s",
+                    tool_name,
+                    tool_use_id,
+                    _focused_repr,
                 )
+                perm_block = PermissionBlock(tool_use_id, tool_name, param_preview)
+                self._pending_permission_blocks[tool_use_id] = perm_block
+                prompt = self._prompt()
+                if prompt is not None:
+                    prompt.disabled = True
+                    prompt.border_title = "permission required"
+                self._append(perm_block)
+                select = PermissionSelect(tool_use_id)
+                self._append(select)
+                logger.debug(
+                    "PermissionSelect mounted before #prompt  pending=%d",
+                    len(self._pending_permission_blocks),
+                )
+
+            elif t == "permission.denied":
+                # 处理超时或断连等非用户交互触发的 deny（用户主动 deny 已由 on_permission_select_decided 处理）
+                tool_use_id = str(event.get("tool_use_id", ""))
+                decision = str(event.get("decision", "denied"))
+                if tool_use_id in self._pending_permission_blocks:
+                    perm_block = self._pending_permission_blocks.pop(tool_use_id, None)
+                    if perm_block is not None:
+                        perm_block._resolve(decision)
+                    try:
+                        select = self.query_one(PermissionSelect)
+                        select.remove()
+                    except Exception:
+                        pass
+                    if not self._pending_permission_blocks:
+                        p = self._prompt()
+                        if p is not None:
+                            p.disabled = False
+                            p.read_only = False
+                            p.border_title = "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                            p.focus()
+
+            elif t == "log.line":
+                level = event.get("level", "INFO")
+                color = (
+                    "bold red"
+                    if level == "ERROR"
+                    else ("yellow" if level == "WARNING" else "dim")
+                )
+                self._append(
+                    Static(
+                        f"[{color}]{level}[/{color}]  "
+                        f"[dim]{event.get('source', '')}[/dim]  {event.get('message', '')}",
+                        classes="log-line",
+                    )
+                )
+        except Exception:
+            logger.exception(
+                "_handle_event crashed  event_type=%s", event.get("type", "?")
             )
 
 

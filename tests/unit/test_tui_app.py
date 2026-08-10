@@ -7,6 +7,8 @@ from crispcode.core.config import CrispConfig
 from crispcode.tui.app import (
     CrispTuiApp,
     LLMStreamBlock,
+    PermissionBlock,
+    PermissionSelect,
     ToolCallBlock,
     _param_summary,
     _preview,
@@ -232,3 +234,30 @@ def test_unknown_event_silently_ignored() -> None:
 
     app._handle_event({"type": "some.unknown.type", "runs_id": "r", "ts": "t"})
     assert appended == []
+
+
+# 功能：验证 permission.requested 事件注册审批块并挂载选择控件
+# 设计：回归测试——此前误用未定义的 _pending_message_blocks（AttributeError 崩掉 socket worker）
+#       且调用不存在的 _mount_permission_select；两者都曾导致权限 UI 无法出现
+def test_permission_requested_registers_block_and_select() -> None:
+    app = CrispTuiApp(CrispConfig("127.0.0.1", 9999))
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
+    app._prompt = lambda: None  # type: ignore[method-assign]
+
+    app._handle_event(
+        {
+            "type": "permission.requested",
+            "tool_use_id": "uid-1",
+            "tool_name": "write_file",
+            "params": {"path": "a.txt", "content": "hi"},
+            "param_preview": "path = 'a.txt'",
+            "session_id": "s1",
+            "runs_id": "r",
+            "ts": "t",
+        }
+    )
+
+    assert "uid-1" in app._pending_permission_blocks  # type: ignore[attr-defined]
+    assert isinstance(appended[0], PermissionBlock)
+    assert isinstance(appended[1], PermissionSelect)

@@ -39,6 +39,7 @@ async def _fail(
     error_class: str,
     error_message: str,
     elapsed_ms: int,
+    attempt: int = 1,
 ) -> ToolResult:
     """发布 ToolCallFailedEvent 并返回对应 ToolResult"""
     await bus.publish(
@@ -49,6 +50,7 @@ async def _fail(
             error_class=error_class,
             error_message=error_message,
             elapsed_ms=elapsed_ms,
+            attempt=attempt,
             ts=_now(),
         )
     )
@@ -134,10 +136,12 @@ async def invoke_tool(
         if allowed:
             if decision not in ("auto_allow",):
                 await bus.publish(
-                    runs_id=runs_id,
-                    tool_use_id=tool_call.id,
-                    decision=decision,
-                    ts=_now(),
+                    PermissionGrantedEvent(
+                        runs_id=runs_id,
+                        tool_use_id=tool_call.id,
+                        decision=decision,
+                        ts=_now(),
+                    )
                 )
 
         else:

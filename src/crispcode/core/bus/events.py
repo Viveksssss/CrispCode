@@ -68,7 +68,7 @@ class ToolCallFailedEvent(BaseModel):
     error_message: str
     elapsed_ms: int
     ts: str
-    attemp: int = 1
+    attempt: int = 1
 
 
 class LlmTokenEvent(BaseModel):

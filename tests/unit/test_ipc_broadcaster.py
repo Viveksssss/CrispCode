@@ -5,7 +5,11 @@ import json
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
-from crispcode.core.bus.events import RunStartedEvent, StepStartedEvent
+from crispcode.core.bus.events import (
+    PermissionRequestedEvent,
+    RunStartedEvent,
+    StepStartedEvent,
+)
 from crispcode.core.transport.ipc_broadcaster import IpcEventBroadcaster
 
 
@@ -122,3 +126,27 @@ async def test_dead_connection_removed_after_failure() -> None:
     writer.write.reset_mock()  # type: ignore[attr-defined]
     await broadcaster.handle(event)  # no subscribers remain
     writer.write.assert_not_called()  # type: ignore[attr-defined]
+
+
+# 功能：验证订阅 "permission.*" 时，权限审批事件能推送到客户端
+# 设计：回归测试——TUI 订阅列表此前缺 permission.*，导致 permission.requested 被广播器过滤、权限 UI 永不出现
+async def test_permission_topic_delivers_permission_events() -> None:
+    broadcaster = IpcEventBroadcaster()
+    writer = _make_writer()
+    broadcaster.subscribe(writer, topics=["permission.*"])
+
+    event = PermissionRequestedEvent(
+        runs_id="r1",
+        tool_use_id="t1",
+        tool_name="write_file",
+        params={"path": "a.txt", "content": "hi"},
+        param_preview="path = 'a.txt'",
+        session_id="s1",
+        ts="2026-01-01T00:00:00Z",
+    )
+    await broadcaster.handle(event)
+
+    assert writer.write.call_count == 1  # type: ignore[attr-defined]
+    data = json.loads(writer.write.call_args[0][0].rstrip(b"\n"))  # type: ignore[attr-defined]
+    assert data["kind"] == "event"
+    assert data["event"]["type"] == "permission.requested"

@@ -115,8 +115,9 @@ class SocketServer:
 
             if not line:
                 return
-
-            await self._handle_line(line, writer)
+            # 每条命令独立作为 task 执行，避免长时间运行的 handler（如 session.send_message）
+            # 阻塞读循环，使 permission.respond 等并发命令能被及时处理
+            asyncio.create_task(self._handle_line(line, writer))
 
     async def _handle_line(self, line: bytes, writer: asyncio.StreamWriter) -> None:
         """解析单行 JSON-RPC 请求并调用对应 handler，将结果或错误写回客户端"""
@@ -157,7 +158,7 @@ class SocketServer:
 
         _writer_var.set(writer)
         try:
-            result = await handler(req.params)
+            result = await handler(req.params)  # 执行
         except ValidationError as e:
             await self._send(
                 writer, make_error(req.id, INVALID_PARAMS, f"Invalid params: {e}")

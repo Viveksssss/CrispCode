@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import Field
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict,Field
 
 from crispcode.core.tools.base import BaseTool, ToolResult
 

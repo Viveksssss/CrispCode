@@ -14,6 +14,8 @@ from pydantic import BaseModel
 
 import crispcode
 from crispcode.core.bus.commands import (
+    PermissionRespondCommand,
+    PermissionRespondResult,
     PongResult,
     AgentRunResult,
     AgentRunCommand,
@@ -40,6 +42,8 @@ from crispcode.core.trace.writer import TraceWriter
 from crispcode.core.transport.ipc_broadcaster import IpcEventBroadcaster
 from crispcode.core.transport.socket_server import SocketServer, get_connection_writer
 from crispcode.core.session import SessionManager, SessionStore
+from crispcode.core.permissions.manager import PermissionManager
+from crispcode.core.permissions.storage import load_policy_file
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,7 @@ class CoreApp:
         self._trace: TraceWriter | None = None
         self._running_runs: set[asyncio.Task[None]] = set()
         self._sessions: SessionManager | None = None
+        self._permission_manager: PermissionManager | None = None
 
     async def _ping_handler(self, params: dict[str, Any]) -> PongResult:
         """处理 core.ping 请求，返回服务版本、运行时长和接收时间"""
@@ -148,6 +153,22 @@ class CoreApp:
             subscription_id=sub_id, replayed_count=replayed_count
         )
 
+    async def _permission_respond_handler(
+        self, params: dict[str, Any]
+    ) -> PermissionRespondResult:
+        """接收客户端权限审批响应，resolve 对应挂起的 Future"""
+        cmd = PermissionRespondCommand.model_validate(params)
+        logger.info(
+            "permission.respond received tool_use_id=%s decision=%s",
+            cmd.tool_use_id,
+            cmd.decision,
+        )
+        if self._permission_manager is None:
+            logger.error("permission.respond: PermissionManager not initialized")
+            return PermissionRespondResult()
+        self._permission_manager.respond(cmd.tool_use_id, cmd.decision)
+        return PermissionRespondResult()
+
     async def _replay_events(
         self, runs_id: str, writer: asyncio.StreamWriter, topics: list[str]
     ) -> int:
@@ -193,6 +214,18 @@ class CoreApp:
             await self._trace.start()
             self._bus.subscribe(self._trace_event_handler)
 
+        policy_file = Path("~/.crispcode/policy.toml").expanduser()
+        self._permission_manager = PermissionManager(
+            policy_file=policy_file,
+            timeout_s=self._config.permission.timeout_s,
+        )
+
+        logger.info(
+            "permission manager:timeout_s=%.1f persistent=%d entries",
+            self._config.permission.timeout_s,
+            len(load_policy_file(policy_file)),
+        )
+
         self._broadcaster = IpcEventBroadcaster(trace=self._trace)
         self._bus.subscribe(self._broadcaster.handle)
         session_root = Path("~/.crispcode/session").expanduser()
@@ -200,7 +233,10 @@ class CoreApp:
         self._sessions = SessionManager(
             store,
             runner_factory=lambda: AgentRunner(
-                self._config, bus=self._bus, trace=self._trace
+                self._config,
+                bus=self._bus,
+                trace=self._trace,
+                permission_manager=self._permission_manager,
             ),
             bus=self._bus,
         )
@@ -215,6 +251,7 @@ class CoreApp:
         server.register("session.send_message", self._session_send_handler)
         server.register("session.get_history", self._session_history_handler)
         server.register("session.close", self._session_close_handler)
+        server.register("permission.respond", self._permission_respond_handler)
 
         addr = await server.start()
         logger.info("crisp-core %s listening addr=%s", crispcode.__version__, addr)

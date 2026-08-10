@@ -1,9 +1,10 @@
 from __future__ import annotations
-
 import asyncio
-from dataclasses import Field
 
-from pydantic import BaseModel, ConfigDict
+# from dataclasses import Field
+
+from pydantic.fields import FieldInfo
+from pydantic import BaseModel, ConfigDict,Field
 from crispcode.core.tools.base import BaseTool, ToolResult
 
 _DEFAULT_TIMEOUT = 60
