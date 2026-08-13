@@ -61,6 +61,15 @@ class PermissionConfig:
 
 
 @dataclass
+class CompactionConfig:
+    auto_threshold: float = (
+        0.0  # context_pct 触发自动压缩的阈值（0 表示禁用，推荐用手动 /compact）
+    )
+    tool_result_limit: int = 8_000  # tool_result 截断触发字符数
+    tool_result_keep: int = 4_000  # 截断后保留的前缀字符数
+
+
+@dataclass
 class CrispConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -71,6 +80,7 @@ class CrispConfig:
     trace: TraceConfig = field(default_factory=TraceConfig)
     tui_config: TuiConfig = field(default_factory=TuiConfig)
     permission: PermissionConfig = field(default_factory=PermissionConfig)
+    compaction: CompactionConfig = field(default_factory=CompactionConfig)
 
 
 def get_config() -> CrispConfig:
@@ -110,6 +120,7 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
         "llm",
         "tui",
         "permission",
+        "compaction",
     }
     if unknown:
         raise SystemExit(
@@ -255,6 +266,43 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
                         f"Config error: permission.timeout_s must be a integer"
                     )
 
+    if "compaction" in data:
+        comp = data["compaction"]
+        if not isinstance(comp, dict):
+            raise SystemExit("Config error: [compaction] must be a table")
+        unknown_comp: set[str] = set(comp.keys()) - {
+            "auto_threshold",
+            "tool_result_limit",
+            "tool_result_keep",
+        }
+
+        if unknown_comp:
+            raise SystemExit(
+                f"Unknown [compaction] keys: {', '.join(sorted(unknown_comp))}"
+            )
+
+        if "auto_threshold" in comp:
+            val = comp["auto_threshold"]
+            if not isinstance(val, (int, float)) or not (0.0 <= val <= 1.0):
+                raise SystemExit(
+                    "Config error: compaction.auto_threshold must be between 0 and 1"
+                )
+            config.compaction.auto_threshold = float(val)
+        if "tool_result_limit" in comp:
+            val = comp["tool_result_limit"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit(
+                    "Config error: compaction.tool_result_limit must be a positive integer"
+                )
+            config.compaction.tool_result_limit = val
+        if "tool_result_keep" in comp:
+            val = comp["tool_result_keep"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit(
+                    "Config error: compaction.tool_result_keep must be a positive integer"
+                )
+            config.compaction.tool_result_keep = val
+
 
 def _apply_env(config: CrispConfig) -> None:
     host = os.environ.get("CRISP_HOST")
@@ -288,7 +336,7 @@ def _apply_env(config: CrispConfig) -> None:
             val = int(max_steps_str)
             if val <= 0:
                 raise SystemExit(
-                    "Config error: KAMA_MAX_STEPS must be a positive integer,"
+                    "Config error: CRISP_MAX_STEPS must be a positive integer,"
                     f" got: {max_steps_str!r}"
                 )
                 config.agent.max_steps = val
@@ -356,4 +404,46 @@ def _apply_env(config: CrispConfig) -> None:
         except ValueError:
             raise SystemExit(
                 f"Config error: CRISP_PERMISSION_TIMEOUT_S must be a number, got: {perm_timeout!r}"
+            )
+
+    compact_threshold = os.environ.get("CRISP_COMPACT_THRESHOLD")
+    if compact_threshold is not None:
+        try:
+            compact_threshold_val = float(compact_threshold)
+            if not (0.0 <= compact_threshold_val <= 1.0):
+                raise SystemExit(
+                    f"Config error: CRISP_COMPACT_THRESHOLD must be between 0 and 1, got: {compact_threshold!r}"
+                )
+            config.compaction.auto_threshold = compact_threshold_val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: CRISP_COMPACT_THRESHOLD must be a number, got: {compact_threshold!r}"
+            )
+
+    compact_tool_limit = os.environ.get("CRISP_COMPACT_TOOL_LIMIT")
+    if compact_tool_limit is not None:
+        try:
+            compact_tool_limit_val = int(compact_tool_limit)
+            if compact_tool_limit_val <= 0:
+                raise SystemExit(
+                    f"Config error: CRISP_COMPACT_TOOL_LIMIT must be a positive integer, got: {compact_tool_limit!r}"
+                )
+            config.compaction.tool_result_limit = compact_tool_limit_val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: CRISP_COMPACT_TOOL_LIMIT must be an integer, got: {compact_tool_limit!r}"
+            )
+
+    compact_tool_keep = os.environ.get("CRISP_COMPACT_TOOL_KEEP")
+    if compact_tool_keep is not None:
+        try:
+            compact_tool_keep_val = int(compact_tool_keep)
+            if compact_tool_keep_val <= 0:
+                raise SystemExit(
+                    f"Config error: CRISP_COMPACT_TOOL_KEEP must be a positive integer, got: {compact_tool_keep!r}"
+                )
+            config.compaction.tool_result_keep = compact_tool_keep_val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: CRISP_COMPACT_TOOL_KEEP must be an integer, got: {compact_tool_keep!r}"
             )

@@ -85,6 +85,17 @@ class PermissionRespondResult(BaseModel):
     ok: bool = True
 
 
+class SessionCompactCommand(BaseModel):
+    type: Literal["session.compact"] = "session.compact"
+    session_id: str
+    focus: str = ""
+
+
+class SessionCompactResult(BaseModel):
+    summary_tokens: int
+    saved_tokens: int
+
+
 Command = Annotated[
     PingCommand
     | AgentRunCommand
