@@ -169,7 +169,7 @@ class PermissionDeniedEvent(BaseModel):
 class ContextCompactedEvent(BaseModel):
     type: Literal["context.compacted"] = "context.compacted"
     session_id: str
-    run_id: str
+    runs_id: str
     original_tokens: int
     summary_tokens: int
     ts: str

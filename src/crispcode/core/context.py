@@ -20,6 +20,8 @@ class ExecutionContext:
     status: str = "running"  # "running" | "success" | "failed"
     reason: str | None = None
     result: str = ""
+    global_context: str = ""
+    project_context: str = ""
 
     def __post_init__(self) -> None:
         """初始化将goal加入到消息历史"""
@@ -36,14 +38,19 @@ class ExecutionContext:
         self.messages.append(formatted)
 
     def system_prompt(self, base: str) -> str:
-        if not self.session_notes.strip():
-            return base
-        return (
-            base
-            + "\n\n## Session Notes\n"
-            + self.session_notes.strip()
-            + "\n\nRemember important durable facts by calling note_save."
-        )
+        parts = [base]
+
+        if self.global_context.strip():
+            parts.append("\n\n## Global Context\n" + self.global_context.strip())
+        if self.project_context.strip():
+            parts.append("\n\n## Project Context\n" + self.project_context.strip())
+        if self.session_notes.strip():
+            parts.append(
+                "\n\n## Session Notes\n"
+                + self.session_notes.strip()
+                + "\n\nRemember important durable facts by calling note_save."
+            )
+        return "".join(parts)
 
     def add_tool_result(
         self, tool_use_id: str, content: str, is_error: bool = False

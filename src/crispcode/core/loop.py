@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 from crispcode.core.bus.events import StepFinishedEvent, StepStartedEvent
+from crispcode.core.compact.compactor import Compactor
 from crispcode.core.context import ExecutionContext
 from crispcode.core.events.bus import EventBus
 from crispcode.core.llm.provider import (
@@ -30,6 +31,8 @@ class AgentLoop:
         bus: EventBus,
         *,
         permission_manager: PermissionManager | None = None,
+        compactor: Compactor | None = None,
+        compact_threshold: float = 0.80,
         session_id: str = "",
     ) -> None:
         self._provider = provider
@@ -37,6 +40,8 @@ class AgentLoop:
         self._bus = bus
         self._permission_manager = permission_manager
         self._session_id = session_id
+        self._compact_threshold = compact_threshold
+        self._compactor = compactor
 
     async def run(self, context: ExecutionContext) -> None:
         while not context.is_done():
@@ -107,6 +112,16 @@ class AgentLoop:
                 print("*" * 50)
                 print(response.stop_reason)
                 print("*" * 50)
+
+            if (
+                not context.is_done()
+                and response.stop_reason == "tool_use"
+                and self._compactor is not None
+                and self._compact_threshold > 0
+                and response.usage is not None
+                and response.usage.context_pct >= self._compact_threshold
+            ):
+                await self._compactor.compact(context, self._provider)
 
             await self._bus.publish(
                 StepFinishedEvent(runs_id=context.runs_id, step=context.step, ts=_now())

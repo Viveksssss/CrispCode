@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from enum import Enum
@@ -8,6 +9,7 @@ from typing import Protocol, Any
 
 from anthropic import AsyncAnthropic, AsyncStream
 from anthropic.types import Message, Usage
+import httpx
 import openai  # 添加 openai 依赖
 
 from crispcode.core.llm.types import ModelProvider
@@ -21,6 +23,23 @@ from crispcode.core.bus.events import (
 from crispcode.core.events.bus import EventBus
 
 from .formatters import get_formatter
+
+_MODEL_CONTEXT_WINDOES: dict[str, int] = {
+    "deepseek-v4-pro": 1_000_000,
+    "deepseek-v4-flash": 1_000_000,
+}
+
+_MAX_STREAM_RETRIES = 3
+
+_RETRY_BACKOFF_S = (1.0, 2.0, 4.0)
+logger = logging.getLogger(__name__)
+
+
+def _context_window(model: str) -> int:
+    if model.endswith("[1m]"):
+        return 1_000_000
+    return _MODEL_CONTEXT_WINDOES.get(model, 200_000)
+
 
 _SYSTEM_PROMPT = (
     "You are a helpful AI assistant. "
@@ -95,7 +114,7 @@ class AnthropicProvider:
 
         kwargs: dict[str, object] = {
             "model": self._model,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
             "system": system,
             "messages": messages,
         }
@@ -104,27 +123,50 @@ class AnthropicProvider:
             kwargs["tools"] = tools
 
         text_parts: list[str] = []
+        final_message: Any = None
 
-        import json
+        for attempt in range(1, _MAX_STREAM_RETRIES + 1):
+            text_parts = []
+            try:
+                async with self._client.messages.stream(**kwargs) as stream:
+                    async for text in stream.text_stream:
+                        if attempt == 1:
+                            await bus.publish(
+                                LlmTokenEvent(runs_id=runs_id, token=text, ts=_now())
+                            )
+                            text_parts.append(text)
+                    final_message = await stream.get_final_message()
+                break
+            except (
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+                httpx.ConnectError,
+            ) as exc:
+                if attempt == _MAX_STREAM_RETRIES:
+                    logger.error(
+                        "stream failed after %d attempts run_id=%s step=%d: %s",
+                        _MAX_STREAM_RETRIES,
+                        runs_id,
+                        step,
+                        exc,
+                    )
+                    raise
+                delay = _RETRY_BACKOFF_S[attempt - 1]
+                logger.warning(
+                    "stream dropped (attempt %d/%d) run_id=%s step=%d: %s — retrying in %.0fs",
+                    attempt,
+                    _MAX_STREAM_RETRIES,
+                    runs_id,
+                    step,
+                    exc,
+                    delay,
+                )
+        assert final_message is not None
 
-        # print("=" * 50)
-        # print("Request to:", self._client.base_url)
-        # print("Model:", self._model)
-        # print("System:", json.dumps(system, indent=2))
-        # print("Messages:", json.dumps(messages, indent=2)[:500])
-        # print("Tools:", json.dumps(tools, indent=2) if tools else "None")
-        # print("=" * 50)
-
-        async with self._client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                await bus.publish(LlmTokenEvent(runs_id=runs_id, token=text, ts=_now()))
-                text_parts.append(text)
-            final_message: Message = await stream.get_final_message()
-
-        print(final_message)
-        usage: Usage = final_message.usage
+        usage = final_message.usage
         cache_read: int = getattr(usage, "cache_read_input_tokens", 0) or 0
         cache_create: int = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        context_pct = usage.input_tokens / _context_window(self._model)
 
         await bus.publish(
             LlmUsageEvent(
@@ -133,6 +175,7 @@ class AnthropicProvider:
                 output_tokens=usage.output_tokens,
                 cache_read_input_tokens=cache_read,
                 cache_creation_input_tokens=cache_create,
+                context_pct=context_pct,
                 ts=_now(),
             )
         )
@@ -153,8 +196,58 @@ class AnthropicProvider:
                 output_token=usage.output_tokens,
                 cache_read_input_tokens=cache_read,
                 cache_creation_input_tokens=cache_create,
+                context_pct=context_pct,
             ),
         )
+        # import json
+        # # print("=" * 50)
+        # # print("Request to:", self._client.base_url)
+        # # print("Model:", self._model)
+        # # print("System:", json.dumps(system, indent=2))
+        # # print("Messages:", json.dumps(messages, indent=2)[:500])
+        # # print("Tools:", json.dumps(tools, indent=2) if tools else "None")
+        # # print("=" * 50)
+
+        # async with self._client.messages.stream(**kwargs) as stream:
+        #     async for text in stream.text_stream:
+        #         await bus.publish(LlmTokenEvent(runs_id=runs_id, token=text, ts=_now()))
+        #         text_parts.append(text)
+        #     final_message: Message = await stream.get_final_message()
+
+        # print(final_message)
+        # usage: Usage = final_message.usage
+        # cache_read: int = getattr(usage, "cache_read_input_tokens", 0) or 0
+        # cache_create: int = getattr(usage, "cache_creation_input_tokens", 0) or 0
+
+        # await bus.publish(
+        #     LlmUsageEvent(
+        #         runs_id=runs_id,
+        #         input_tokens=usage.input_tokens,
+        #         output_tokens=usage.output_tokens,
+        #         cache_read_input_tokens=cache_read,
+        #         cache_creation_input_tokens=cache_create,
+        #         ts=_now(),
+        #     )
+        # )
+
+        # tool_calls: list[ToolCallBlock] = []
+        # for block in final_message.content:
+        #     if block.type == "tool_use":
+        #         tool_calls.append(
+        #             ToolCallBlock(id=block.id, name=block.name, input=dict(block.input))
+        #         )
+
+        # return LlmResponse(
+        #     stop_reason=final_message.stop_reason or "end_turn",
+        #     tool_calls=tool_calls,
+        #     text="".join(text_parts),
+        #     usage=UsageState(
+        #         input_token=usage.input_tokens,
+        #         output_token=usage.output_tokens,
+        #         cache_read_input_tokens=cache_read,
+        #         cache_creation_input_tokens=cache_create,
+        #     ),
+        # )
 
 
 class OpenAIProvider:

@@ -8,12 +8,14 @@ from pathlib import Path
 
 
 from crispcode.core.bus.events import RunFinishedEvent, RunStartedEvent
+from crispcode.core.compact.compactor import Compactor
 from crispcode.core.config import CrispConfig
 from crispcode.core.context import ExecutionContext
 from crispcode.core.events.bus import EventBus, EventHandler
 from crispcode.core.events.writer import EventWriter
 from crispcode.core.llm.provider import AnthropicProvider, LLMProvider
 from crispcode.core.loop import AgentLoop
+from crispcode.core.memory import load_context_file
 from crispcode.core.permissions.manager import PermissionManager
 from crispcode.core.runs import (
     RUNS_DIR,
@@ -116,6 +118,9 @@ class AgentRunner:
             history = [{"role": "user", "content": goal}]
             notes = ""
         run_path.mkdir(parents=True, exist_ok=True)
+
+        global_ctx = load_context_file(Path("~/.crispcode/context.md"))
+        project_ctx = load_context_file(Path(".crispcode/context.md"))
         task_manager = TaskManager(run_path / ".tasks")
 
         bus = self._bus if self._bus is not None else EventBus()
@@ -128,6 +133,8 @@ class AgentRunner:
             max_steps=self._config.agent.max_steps,
             prefill_messages=history,
             session_notes=notes,
+            global_context=global_ctx,
+            project_context=project_ctx,
         )
 
         prefill_len = len(history)
@@ -159,6 +166,13 @@ class AgentRunner:
                         trace=self._trace,
                         include_payload=self._config.trace.include_llm_payload,
                     )
+                session_dir = (
+                    store.session_dir(session.id)
+                    if session is not None and store is not None
+                    else run_path
+                )
+                session_id_str = session.id if session is not None else ""
+                compactor = Compactor(bus, session_dir, session_id_str)
 
                 loop = AgentLoop(
                     provider=provider,
@@ -166,6 +180,8 @@ class AgentRunner:
                     bus=bus,
                     permission_manager=self._permission_manager,
                     session_id=session.id if session is not None else "",
+                    compactor=compactor,
+                    compact_threshold=self._config.compaction.auto_threshold,
                 )
                 await loop.run(context)
             except asyncio.CancelledError:

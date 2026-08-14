@@ -21,6 +21,7 @@ from crispcode.core.session.store import SessionStore
 
 if TYPE_CHECKING:
     from crispcode.core.runner import AgentRunner
+    from crispcode.core.llm.provider import LLMProvider
 
 SESSION_NOT_FOUND = -32010
 SESSION_CLOSED = -32011
@@ -37,11 +38,13 @@ class SessionManager:
         store: SessionStore,
         runner_factory: Callable[[], AgentRunner],
         bus: EventBus,
+        provider: LLMProvider | None = None,
     ):
         """初始化回哈u管理器,介入文件存储,runner工厂和事件总线"""
         self._store = store
         self._runner_factory = runner_factory
         self._bus = bus
+        self._provider = provider
         self._sessions: dict[str, Session] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -137,3 +140,41 @@ class SessionManager:
         if session is None:
             raise HandleError(SESSION_NOT_FOUND, "session not found")
         return session
+
+    async def compact(self, sid: str, focus: str = "") -> Any:
+        """手动压缩指定 session 的 thread，将摘要持久化写入 thread.jsonl"""
+        session = self._get_session(sid)
+        lock = self._locks[sid]
+        if lock.locked():
+            raise HandleError(SESSION_BUSY, "session busy")
+        if self._provider is None:
+            raise HandleError(-32020, "provider not available for compaction")
+
+        async with lock:
+            from crispcode.core.bus.commands import SessionCompactResult
+            from crispcode.core.compact.compactor import Compactor
+
+            messages = self._store.read_messages(sid)
+            session_dir = self._store.session_dir(sid)
+            compactor = Compactor(self._bus, session_dir, sid)
+            result = await compactor.compact_messages(
+                messages, self._provider, focus=focus
+            )
+            if result is None:
+                raise HandleError(-32021, "compaction failed or not beneficial")
+            self._store.write_compacted(
+                sid,
+                [
+                    {"role": "user", "content": result.summary_text},
+                    {
+                        "role": "assistant",
+                        "content": "Understood, I'll continue from this summary.",
+                    },
+                ],
+            )
+            return SessionCompactResult(
+                summary_tokens=result.summary_tokens,
+                saved_tokens=max(
+                    0, result.original_token_estimate - result.summary_tokens
+                ),
+            )

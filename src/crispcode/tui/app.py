@@ -419,6 +419,7 @@ class CrispTuiApp(App[None]):
         self._config = config
         self._busy = False
         self._pending_permission_blocks: dict[str, PermissionBlock] = {}
+        self._last_context_pct: float = 0.0
 
     def compose(self) -> ComposeResult:
         """构建 UI：顶部状态栏 + 可滚动事件日志"""
@@ -510,6 +511,17 @@ class CrispTuiApp(App[None]):
         content = event.value.strip()
         if not content:
             return
+
+        if content == "/compact":
+            event.text_area.text = ""
+            if (
+                self._client is not None
+                and self._session_id is not None
+                and not self._busy
+            ):
+                self.run_worker(self._do_compact(), name="compact", exclusive=False)
+            return
+
         if self._client is None or self._session_id is None or self._busy:
             self._append(
                 Static("[yellow]agent busy or disconnected[/yellow]"),
@@ -527,12 +539,46 @@ class CrispTuiApp(App[None]):
             self._do_send_message(content), name="send_message", exclusive=False
         )
 
+    async def _do_compact(self) -> None:
+        if self._client is None or self._session_id is None:
+            return
+        self._append(Static("[dim]⚡ compacting context...[/dim]", classes="log-line"))
+        try:
+            result = await self._client.send_command(
+                "session.compact", {"session_id": self._session_id, "focus": ""}
+            )
+            summary_tokens = result.get("summary_tokens", 0)
+            saved_tokens = result.get("saved_tokens", 0)
+            self._last_context_pct = 0.0
+            self._append(
+                Static(
+                    f"[bold cyan]⚡ Context compacted[/bold cyan]"
+                    f"  [dim]summary={summary_tokens} tokens  saved≈{saved_tokens} tokens[/dim]",
+                    classes="log-line",
+                )
+            )
+        except (IpcError, RuntimeError, OSError) as e:
+            self._append(Static(f"[red]compact error: {e}[/red]", classes="log-line"))
+
     def _prompt(self) -> ChatTextArea | None:
         """安全获取输入框，便于组件测试中未挂载时跳过 UI 操作"""
         try:
             return self.query_one("#prompt", ChatTextArea)
         except NoMatches:
             return None
+
+    def _render_ctx_bar(self, pct: float) -> str:
+        """生成 context 占用率的彩色进度条字符串"""
+        filled = int(pct * 20)
+        bar = "█" * filled + "░" * (20 - filled)
+        label = f"ctx:{pct * 100:.1f}%"
+        if pct >= 0.85:
+            color = "bold red"
+        elif pct >= 0.70:
+            color = "yellow"
+        else:
+            color = "dim"
+        return f"[{color}]{label} {bar}[/{color}]"
 
     async def _do_send_message(self, content: str) -> None:
         if self._client is None:
@@ -759,8 +805,21 @@ class CrispTuiApp(App[None]):
                     )
 
                 self._append(Static("-" * (self.size.width - 10)))
-
+            elif t == "context.compacted":
+                orig = event.get("origianl_tokens", 0)
+                summary = event.get("summary_tokens", 0)
+                self._last_context_pct = 0.0
+                self._append(
+                    Static(
+                        f"[bold cyan]⚡ Context compacted[/bold cyan]"
+                        f"  [dim]original≈{orig} tokens → summary={summary} tokens[/dim]",
+                        classes="log-line",
+                    )
+                )
             elif t == "llm.usage":
+                pct = float(event.get("context_pct") or 0.0)
+                self._last_context_pct = pct
+                ctx_bar = self._render_ctx_bar(pct)
                 if self._config.tui_config.tokens_enabled:
                     self._append(
                         Static(
@@ -768,6 +827,7 @@ class CrispTuiApp(App[None]):
                             f"in={event.get('input_tokens')} "
                             f"out={event.get('output_tokens')} "
                             f"cache={event.get('cache_read_input_tokens')}[/dim]",
+                            f"  {ctx_bar}",
                             classes="usage",
                         )
                     )

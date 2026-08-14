@@ -24,6 +24,7 @@ from crispcode.core.bus.commands import (
     EventSubscribeResult,
     SessionCloseCommand,
     SessionCloseResult,
+    SessionCompactCommand,
     SessionCreateCommand,
     SessionCreateResult,
     SessionGetHistoryCommand,
@@ -34,6 +35,7 @@ from crispcode.core.bus.commands import (
 from crispcode.core.bus.envelope import EventPushEnvelope
 from crispcode.core.config import CrispConfig, CrispConfig, get_config
 from crispcode.core.events.bus import EventBus
+from crispcode.core.llm.provider import AnthropicProvider
 from crispcode.core.logging import setup_logging
 from crispcode.core.runner import AgentRunner
 from crispcode.core.runs import events_file, new_runs_id, run_dir_old
@@ -126,6 +128,15 @@ class CoreApp:
         cmd = SessionGetHistoryCommand.model_validate(params)
         messages = await self._sessions.get_history(cmd.session_id)
         return SessionGetHistoryResult(messages=messages)
+
+    async def _session_compact_handler(
+        self, params: dict[str, Any]
+    ) -> SessionCloseResult:
+        """手动压缩 session thread，将摘要持久化写入 thread.jsonl"""
+        assert self._sessions is not None
+        cmd = SessionCompactCommand.model_validate(params)
+        result = await self._sessions.compact(cmd.session_id, cmd.focus)
+        return result
 
     async def _session_close_handler(
         self, params: dict[str, Any]
@@ -230,6 +241,7 @@ class CoreApp:
         self._bus.subscribe(self._broadcaster.handle)
         session_root = Path("~/.crispcode/session").expanduser()
         store = SessionStore(session_root)
+        compact_provider = AnthropicProvider(self._config.llm.default_model)
         self._sessions = SessionManager(
             store,
             runner_factory=lambda: AgentRunner(
@@ -239,6 +251,7 @@ class CoreApp:
                 permission_manager=self._permission_manager,
             ),
             bus=self._bus,
+            provider=compact_provider,
         )
 
         server = SocketServer(
@@ -252,6 +265,7 @@ class CoreApp:
         server.register("session.get_history", self._session_history_handler)
         server.register("session.close", self._session_close_handler)
         server.register("permission.respond", self._permission_respond_handler)
+        server.register("session.compact", self._session_compact_handler)
 
         addr = await server.start()
         logger.info("crisp-core %s listening addr=%s", crispcode.__version__, addr)
