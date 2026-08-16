@@ -14,7 +14,7 @@ _DEFAULT_LOG_FILE = "~/.crispcode/logs/core.log"
 _DEFAULT_LOG_FORMAT = "text"
 _DEFAULT_CONFIG_PATH = "~/.crispcode/config.toml"
 _DEFAULT_MAX_STEPS = 20
-_DEFAULT_MODEL = "mimo-v2.5-pro"
+_DEFAULT_MODEL = "deepseek-v4-flash"
 _DEFAULT_TRACE_FILE = "~/.crispcode/trace/daemon.log"
 
 
@@ -67,6 +67,12 @@ class CompactionConfig:
     )
     tool_result_limit: int = 8_000  # tool_result 截断触发字符数
     tool_result_keep: int = 4_000  # 截断后保留的前缀字符数
+
+
+@dataclass
+class McpServerConfig:
+    name: str
+    transport: str = "stdio"
 
 
 @dataclass
