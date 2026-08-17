@@ -175,6 +175,30 @@ class ContextCompactedEvent(BaseModel):
     ts: str
 
 
+class SubagentStartedEvent(BaseModel):
+    type: Literal["subagent.started"] = "subagent.started"
+    runs_id: str
+    parent_runs_id: str
+    description: str
+    ts: str
+
+
+class SubagentFinishedEvent(BaseModel):
+    type: Literal["subagent.finished"] = "subagent.finished"
+    runs_id: str
+    parent_runs_id: str
+    status: str
+    ts: str
+
+
+class SkillInvokeEvent(BaseModel):
+    type: Literal["skill.invoked"] = "skill.invoked"
+    skill_name: str
+    arguments: str
+    runs_id: str
+    ts: str
+
+
 Event = Annotated[
     CoreStartedEvent
     | RunStartedEvent
@@ -196,6 +220,9 @@ Event = Annotated[
     | PermissionRequestedEvent
     | PermissionGrantedEvent
     | PermissionDeniedEvent
-    | ContextCompactedEvent,
+    | ContextCompactedEvent
+    | SubagentStartedEvent
+    | SubagentFinishedEvent
+    | SkillInvokeEvent,
     Discriminator("type"),
 ]

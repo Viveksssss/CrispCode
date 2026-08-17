@@ -25,6 +25,7 @@ class LlmResponse:
     tool_calls: list[ToolCallBlock] = field(default_factory=list)
     text: str = ""
     usage: UsageState | None = None
+    thinking_blocks: list[dict[str, object]] = field(default_factory=list)
 
 
 class ModelProvider(Enum):

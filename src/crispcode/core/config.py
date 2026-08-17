@@ -73,6 +73,16 @@ class CompactionConfig:
 class McpServerConfig:
     name: str
     transport: str = "stdio"
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    env: list[str, str] = field(default_factory=dict)
+    host: str = "localhost"
+    port: int = 3000
+
+
+@dataclass
+class McpConfig:
+    servers: list[McpServerConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -87,6 +97,7 @@ class CrispConfig:
     tui_config: TuiConfig = field(default_factory=TuiConfig)
     permission: PermissionConfig = field(default_factory=PermissionConfig)
     compaction: CompactionConfig = field(default_factory=CompactionConfig)
+    mcp: McpConfig = field(default_factory=McpConfig)
 
 
 def get_config() -> CrispConfig:
@@ -96,20 +107,25 @@ def get_config() -> CrispConfig:
     # 2. 加载 .env 文件（不覆盖已有系统环境变量）
     load_dotenv(".env", override=False)
 
+    explicit = os.environ.get("CRISP_CONFIG")
+
     # 3. 确定配置文件路径（环境变量 or 默认）
-    config_path = Path(
-        os.environ.get("CRISP_CONFIG", _DEFAULT_CONFIG_PATH)
-    ).expanduser()
-
+    if explicit:
+        config_paths = [Path(explicit).expanduser()]
+    else:
+        config_paths = [
+            Path(_DEFAULT_CONFIG_PATH).expanduser(),
+            Path(".crispcode/config.toml"),
+        ]
     # 4. 如果配置文件存在，解析并应用
-    if config_path.exists():
-        try:
-            with open(config_path, "rb") as f:
-                data = tomllib.load(f)
-        except tomllib.TOMLDecodeError as e:
-            raise SystemExit(f"Config parse error({config_path}):{e}")
-        _apply_toml(config, data)
-
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                with open(config_path, "rb") as f:
+                    data = tomllib.load(f)
+            except tomllib.TOMLDecodeError as e:
+                raise SystemExit(f"Config parse error ({config_path}): {e}")
+            _apply_toml(config, data)
     # 5. 应用环境变量（最高优先级）
     _apply_env(config)
     return config
@@ -127,6 +143,7 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
         "tui",
         "permission",
         "compaction",
+        "mcp",
     }
     if unknown:
         raise SystemExit(
@@ -308,6 +325,87 @@ def _apply_toml(config: CrispConfig, data: dict[str, Any]) -> None:
                     "Config error: compaction.tool_result_keep must be a positive integer"
                 )
             config.compaction.tool_result_keep = val
+
+    """
+    [mcp]
+    # mcp 下只允许 "servers" 字段，其他字段会报错
+    
+    [[mcp.servers]]
+    name = "my-server-1"           # 必填，非空字符串
+    transport = "stdio"            # 可选，默认 "stdio"，可选值: "stdio" | "tcp"
+    command = "python"             # 可选，字符串
+    args = ["-m", "my_module"]     # 可选，字符串数组
+    env = { DEBUG = "true", LOG_LEVEL = "info" }  # 可选，键值对（自动转字符串）
+    
+    [[mcp.servers]]
+    name = "remote-server"
+    transport = "tcp"              # 使用 TCP 传输时需配置 host 和 port
+    host = "127.0.0.1"             # 可选，字符串
+    port = 8080                    # 可选，整数
+    command = "node"               # TCP 模式下也可以配置 command/args/env
+    args = ["server.js"]
+    """
+
+    if "mcp" in data:
+        mcp = data["mcp"]
+        if not isinstance(mcp, dict):
+            raise SystemExit("Config error: [mcp] must be a table")
+        unknown_mcp: set[str] = set(mcp.keys()) - {"servers"}
+        if unknown_mcp:
+            raise SystemExit(f"Unknown [mcp] keys: {', '.join(sorted(unknown_mcp))}")
+        servers_raw = mcp.get("servers", [])
+        if not isinstance(servers_raw, list):
+            raise SystemExit("Config error: mcp.servers must be an array of tables")
+        for i, srv in enumerate(servers_raw):
+            if not isinstance(srv, dict):
+                raise SystemExit(f"Config error: mcp.servers[{i}] must be a table")
+            name = srv.get("name")
+            if not isinstance(name, str) or not name:
+                raise SystemExit(
+                    f"Config error: mcp.servers[{i}].name must be a non-empty string"
+                )
+            transport = srv.get("transport", "stdio")
+            if transport not in ("stdio", "tcp"):
+                raise SystemExit(
+                    f"Config error: mcp.servers[{i}].transport must be 'stdio' or 'tcp'"
+                )
+            s = McpServerConfig(name=name, transport=transport)
+            if "command" in srv:
+                val = srv["command"]
+                if not isinstance(val, str):
+                    raise SystemExit(
+                        f"Config error: mcp.servers[{i}].command must be a string"
+                    )
+                s.command = val
+            if "args" in srv:
+                val = srv["args"]
+                if not isinstance(val, list):
+                    raise SystemExit(
+                        f"Config error: mcp.servers[{i}].args must be an array"
+                    )
+                s.args = [str(a) for a in val]
+            if "env" in srv:
+                val = srv["env"]
+                if not isinstance(val, dict):
+                    raise SystemExit(
+                        f"Config error: mcp.servers[{i}].env must be a table"
+                    )
+                s.env = {str(k): str(v) for k, v in val.items()}
+            if "host" in srv:
+                val = srv["host"]
+                if not isinstance(val, str):
+                    raise SystemExit(
+                        f"Config error: mcp.servers[{i}].host must be a string"
+                    )
+                s.host = val
+            if "port" in srv:
+                val = srv["port"]
+                if not isinstance(val, int):
+                    raise SystemExit(
+                        f"Config error: mcp.servers[{i}].port must be an integer"
+                    )
+                s.port = val
+            config.mcp.servers.append(s)
 
 
 def _apply_env(config: CrispConfig) -> None:
