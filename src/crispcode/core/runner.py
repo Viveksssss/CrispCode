@@ -106,6 +106,8 @@ class AgentRunner:
         runs_id: str | None = None,
         session: Session | None = None,
         store: SessionStore | None = None,
+        system_prompt_override: str | None = None,
+        tool_whitelist: list[str] | None = None,
     ) -> RunOutcome:
         runs_id = runs_id or new_runs_id()
 
@@ -135,6 +137,7 @@ class AgentRunner:
             session_notes=notes,
             global_context=global_ctx,
             project_context=project_ctx,
+            system_prompt_override=system_prompt_override,
         )
 
         prefill_len = len(history)
@@ -150,7 +153,10 @@ class AgentRunner:
             )
 
             registry = self._build_registry(
-                task_manager=task_manager, session=session, store=store, runs_id=runs_id
+                task_manager=task_manager,
+                session=session,
+                store=store,
+                runs_id=runs_id,
             )
 
             cancelled = False

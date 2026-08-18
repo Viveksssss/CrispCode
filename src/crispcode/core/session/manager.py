@@ -13,11 +13,13 @@ from crispcode.core.bus.events import (
     SessionMessageReceivedEvent,
     SessionResumedEvent,
     SessionIdleEvent,
+    SkillInvokeEvent,
 )
 from crispcode.core.events.bus import EventBus
 from crispcode.core.runs import new_runs_id
 from crispcode.core.session.model import Session, SessionMode
 from crispcode.core.session.store import SessionStore
+from crispcode.core.skills.loader import SkillLoader
 
 if TYPE_CHECKING:
     from crispcode.core.runner import AgentRunner
@@ -47,6 +49,7 @@ class SessionManager:
         self._provider = provider
         self._sessions: dict[str, Session] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._skill_loader = SkillLoader()
 
     async def create(self, mode: SessionMode, title: str = "") -> Session:
         """创建新 session 并写入 meta.json"""
@@ -94,9 +97,35 @@ class SessionManager:
             session.updated_at = _now()
             self._store.write_meta(session)
 
+            goal = content
+            system_prompt_override: str | None = None
+            tool_whitelist: list[str] | None = None
+            if content.startswith("/"):
+                parts = content[1:].split(None, 1)
+                skill_name = parts[0]
+                arguments = parts[1] if len(parts) > 1 else ""
+                skill = self._skill_loader.resolve(skill_name)
+                if skill is not None:
+                    goal = self._skill_loader.render_prompt(skill, arguments)
+                    system_prompt_override = skill.system_prompt_template
+                    tool_whitelist = skill.allowed_tools or None
+                    await self._bus.publish(
+                        SkillInvokeEvent(
+                            skill_name=skill_name,
+                            arguments=arguments,
+                            runs_id=runs_id,
+                            ts=_now(),
+                        )
+                    )
+
             runner = self._runner_factory()
             await runner.run_and_capture(
-                content, runs_id=runs_id, session=session, store=self._store
+                goal,
+                runs_id=runs_id,
+                session=session,
+                store=self._store,
+                system_prompt_override=system_prompt_override,
+                tool_whitelist=tool_whitelist,
             )
 
             session.updated_at = _now()

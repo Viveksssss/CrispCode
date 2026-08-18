@@ -102,6 +102,14 @@ class AgentLoop:
                     context.add_tool_result(
                         tc.id, result.content, is_error=result.is_error
                     )
+            elif response.stop_reason == "max_tokens" and response.tool_calls:
+                for tc in response.tool_calls:
+                    context.add_tool_result(
+                        tc.id,
+                        "Error: output token limit reached before this tool call could be completed. "
+                        "Please break the task into smaller steps and try again.",
+                        is_error=True,
+                    )
 
             if response.stop_reason == "end_turn":
                 context.result = response.text or ""

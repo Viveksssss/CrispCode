@@ -22,6 +22,7 @@ class ExecutionContext:
     result: str = ""
     global_context: str = ""
     project_context: str = ""
+    system_prompt_override: str | None = None
 
     def __post_init__(self) -> None:
         """初始化将goal加入到消息历史"""
@@ -38,7 +39,7 @@ class ExecutionContext:
         self.messages.append(formatted)
 
     def system_prompt(self, base: str) -> str:
-        parts = [base]
+        parts = [self.system_prompt_override if self.system_prompt_override else base]
 
         if self.global_context.strip():
             parts.append("\n\n## Global Context\n" + self.global_context.strip())
