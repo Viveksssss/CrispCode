@@ -43,7 +43,7 @@ def test_missing_env_file_silent(
     assert cfg.port == 7437
 
 
-def test_dotenv_before_toml_kama_config(
+def test_dotenv_before_toml_crisp_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     toml_path = tmp_path / "custom.toml"

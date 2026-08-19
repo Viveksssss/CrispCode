@@ -53,6 +53,16 @@ class FakeStream:
     async def __aexit__(self, *args: object) -> None:
         pass
 
+    async def __aiter__(self):  # type: ignore[override]
+        for t in self._texts:
+            delta = MagicMock()
+            delta.type = "text_delta"
+            delta.text = t
+            chunk = MagicMock()
+            chunk.type = "content_block_delta"
+            chunk.delta = delta
+            yield chunk
+
     @property
     def text_stream(self):  # type: ignore[return]
         async def _gen():

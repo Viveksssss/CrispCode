@@ -25,6 +25,7 @@ class _EndTurnProvider:
         runs_id: str,
         *,
         step: int = 0,
+        system: str | None = None,
     ) -> LlmResponse:
         return LlmResponse(stop_reason="end_turn", text="done")
 
@@ -43,6 +44,7 @@ class _LoopingProvider:
         runs_id: str,
         *,
         step: int = 0,
+        system: str | None = None,
     ) -> LlmResponse:
         self._call += 1
         tc = ToolCallBlock(id=f"t{self._call}", name="unknown_tool", input={})

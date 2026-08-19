@@ -89,6 +89,23 @@ class LlmUsageEvent(BaseModel):
     ts: str
 
 
+class LlmThinkingEvent(BaseModel):
+    type: Literal["llm.thinking"] = "llm.thinking"
+    runs_id: str
+    thinking: str  # thinking 文本
+    signature: str = ""  # 可选，Anthropic 的 signature
+    step: int = 0
+    ts: str
+
+
+class LlmThinkingTokenEvent(BaseModel):
+    """逐 token 推送 thinking 内容（与 LlmTokenEvent 对称，用于流式显示）"""
+    type: Literal["llm.thinking.token"] = "llm.thinking.token"
+    runs_id: str
+    token: str
+    ts: str
+
+
 class LlmModelSelectedEvent(BaseModel):
     type: Literal["llm.model_selected"] = "llm.model_selected"
     runs_id: str
@@ -211,6 +228,8 @@ Event = Annotated[
     | LlmTokenEvent
     | LlmUsageEvent
     | LlmModelSelectedEvent
+    | LlmThinkingEvent
+    | LlmThinkingTokenEvent
     | LogLineEvent
     | SessionCreatedEvent
     | SessionMessageReceivedEvent

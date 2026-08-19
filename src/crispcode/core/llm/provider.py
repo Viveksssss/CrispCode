@@ -17,6 +17,8 @@ from crispcode.core.events.bus import EventBus
 from crispcode.core.llm.types import LlmResponse, ToolCallBlock, UsageState
 from crispcode.core.bus.events import (
     LlmModelSelectedEvent,
+    LlmThinkingEvent,
+    LlmThinkingTokenEvent,
     LlmTokenEvent,
     LlmUsageEvent,
 )
@@ -129,12 +131,29 @@ class AnthropicProvider:
             text_parts = []
             try:
                 async with self._client.messages.stream(**kwargs) as stream:
-                    async for text in stream.text_stream:
-                        if attempt == 1:
-                            await bus.publish(
-                                LlmTokenEvent(runs_id=runs_id, token=text, ts=_now())
-                            )
-                            text_parts.append(text)
+                    async for chunk in stream:
+                        if chunk.type != "content_block_delta":
+                            continue
+                        delta = chunk.delta
+                        if delta.type == "thinking_delta":
+                            if attempt == 1:
+                                await bus.publish(
+                                    LlmThinkingTokenEvent(
+                                        runs_id=runs_id,
+                                        token=delta.thinking,
+                                        ts=_now(),
+                                    )
+                                )
+                        elif delta.type == "text_delta":
+                            if attempt == 1:
+                                await bus.publish(
+                                    LlmTokenEvent(
+                                        runs_id=runs_id,
+                                        token=delta.text,
+                                        ts=_now(),
+                                    )
+                                )
+                            text_parts.append(delta.text)
                     final_message = await stream.get_final_message()
                 break
             except (

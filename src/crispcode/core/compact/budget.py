@@ -29,7 +29,7 @@ def truncate_tool_results(
                 text = block["content"]
                 if len(text) > limit:
                     omitted = len(text) - keep
-                    block = dict[block]
+                    # block = dict[block]
                     block["content"] = (
                         text[:keep]
                         + f"\n[... {omitted} chars omitted.Fuul output in run events.]"

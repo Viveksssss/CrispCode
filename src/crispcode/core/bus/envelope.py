@@ -1,12 +1,5 @@
 from typing import Any, Literal
 from pydantic import BaseModel, Field
-from typing import TYPE_CHECKING
-import pytest
-
-if TYPE_CHECKING:
-    from crispcode.core.bus.commands import PingCommand, PongResult
-
-from crispcode.core.bus.events import CoreStartedEvent
 
 
 class EventPushEnvelope(BaseModel):
@@ -46,7 +39,7 @@ INVALID_PARAMS = -32602  # 参数错误
 INTERNAL_ERROR = -32603  # 服务器内部错误
 
 
-def HandleError(Exception):
+class HandleError(Exception):
     """命令 handler 抛出此异常，SocketServer 将其转换为结构化 JSON-RPC 错误响应。"""
 
     def __init__(self, code: int, message: str, data: Any = None) -> None:

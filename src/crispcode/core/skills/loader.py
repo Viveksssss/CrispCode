@@ -14,7 +14,8 @@ class Skill:
     allowed_tools: list[str] = field(default_factory=list)
 
 
-_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+# _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_FRONTMATTER_RE = re.compile(r"^---[ \t]*\n(.*?)\n---[ \t]*\n", re.DOTALL)
 
 
 def _parse_skill_file(path: Path) -> Skill:
@@ -29,7 +30,7 @@ def _parse_skill_file(path: Path) -> Skill:
             name=path.stem,
             description="",
             allowed_tools=[],
-            prompt=text.strip(),
+            system_prompt_template=text.strip(),
         )
 
     front = m.group(1)
@@ -43,14 +44,14 @@ def _parse_skill_file(path: Path) -> Skill:
         name=data.get("name", path.stem),
         description=data.get("description", ""),
         allowed_tools=data.get("allowed_tools", []),
-        prompt=body.strip(),
+        system_prompt_template=body.strip(),
     )
 
 
 class SkillLoader:
     """按三级优先级（项目本地 > 用户全局 > 内建）查找并解析 skill"""
 
-    _BUILTIN_DIR = Path(__file__) / "builtin"
+    _BUILTIN_DIR = Path(__file__).parent / "builtin"
 
     def resolve(self, name: str) -> Skill | None:
         """按优先级查找 skill 文件；未找到返回 None"""
@@ -123,7 +124,12 @@ class SkillLoader:
                         seen[skill.name] = skill
                     except Exception:
                         pass
-        return list(seen.values)
+        return list(seen.values())
 
     def render_prompt(self, skill: Skill, arguments: str) -> str:
         return skill.system_prompt_template.replace("$ARGUMENTS", arguments)
+
+
+if __name__ == "__main__":
+    loader = SkillLoader()
+    print(loader.list_all_skills())

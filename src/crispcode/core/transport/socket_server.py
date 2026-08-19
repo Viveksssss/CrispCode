@@ -48,6 +48,7 @@ class SocketServer:
         self._server: asyncio.AbstractServer | None = None
         self._broadcaster = broadcaster
         self._trace = trace
+        self._active_writers: set[asyncio.StreamWriter] = set()
 
     def register(self, method: str, handler: CommandHandler) -> None:
         """注册一个方法名对应的命令处理函数"""
@@ -77,8 +78,17 @@ class SocketServer:
         if self._server is None:
             return
 
+        for writer in list(self._active_writers):
+            try:
+                writer.close()
+            except Exception:
+                pass
+
         self._server.close()
-        await asyncio.wait_for(self._server.wait_closed(), timeout=2.0)
+        try:
+            await asyncio.wait_for(self._server.wait_closed(), timeout=2.0)
+        except (TimeoutError, asyncio.CancelledError):
+            pass
 
     async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -86,9 +96,11 @@ class SocketServer:
         """处理单个客户端连接，完成后关闭写流"""
         peer = writer.get_extra_info("peername", "<unknown>")
         logger.debug("client connected : %s", peer)
+        self._active_writers.add(writer)
         try:
             await self._read_loop(reader, writer)
         finally:
+            self._active_writers.discard(writer)
             if self._broadcaster is not None:
                 self._broadcaster.unsubscribe(writer)
             writer.close()

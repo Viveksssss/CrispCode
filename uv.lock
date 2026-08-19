@@ -111,8 +111,10 @@ name = "crispcode"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "dotenv" },
     { name = "httpx", extra = ["socks"] },
+    { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -121,9 +123,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "anthropic" },
     { name = "mypy" },
-    { name = "openai" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -131,8 +131,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = ">=0.25" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
+    { name = "openai" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
@@ -141,11 +143,9 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "anthropic", specifier = ">=0.25" },
     { name = "mypy", specifier = ">=1.10" },
-    { name = "openai" },
     { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">0.23" },
+    { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "ruff", specifier = ">=0.4" },
 ]
 

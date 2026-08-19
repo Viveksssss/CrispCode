@@ -37,6 +37,7 @@ from crispcode.core.config import CrispConfig, CrispConfig, get_config
 from crispcode.core.events.bus import EventBus
 from crispcode.core.llm.provider import AnthropicProvider
 from crispcode.core.logging import setup_logging
+from crispcode.core.mcp.server import McpServerManager
 from crispcode.core.runner import AgentRunner
 from crispcode.core.runs import events_file, new_runs_id, run_dir_old
 from crispcode.core.trace.record import TraceRecord
@@ -64,6 +65,7 @@ class CoreApp:
         self._running_runs: set[asyncio.Task[None]] = set()
         self._sessions: SessionManager | None = None
         self._permission_manager: PermissionManager | None = None
+        self._mcp_manager:McpServerManager | None = None
 
     async def _ping_handler(self, params: dict[str, Any]) -> PongResult:
         """处理 core.ping 请求，返回服务版本、运行时长和接收时间"""
@@ -152,17 +154,37 @@ class CoreApp:
         cmd = EventSubscribeCommand.model_validate(params)
         writer = get_connection_writer()
 
-        # 已回放的事件条数
+        # 已回放的事件条数 + 该 run 所属 session 已持久化的 context_pct
         replayed_count = 0
+        context_pct = 0.0
         if cmd.replayed_from_run is not None:
             replayed_count = await self._replay_events(
                 cmd.replayed_from_run, writer, cmd.topics
             )
+            context_pct = self._persisted_context_pct(cmd.replayed_from_run)
 
         sub_id = self._broadcaster.subscribe(writer, cmd.topics, cmd.scope)
         return EventSubscribeResult(
-            subscription_id=sub_id, replayed_count=replayed_count
+            subscription_id=sub_id,
+            replayed_count=replayed_count,
+            context_pct=context_pct,
         )
+
+    def _persisted_context_pct(self, runs_id: str) -> float:
+        """根据 runs_id 找到所属 session，读取其 meta.json 中持久化的 context_pct"""
+        try:
+            candidates = (
+                Path("~/.crispcode/session").expanduser().glob(f"*/runs/{runs_id}")
+            )
+            for run_dir in candidates:
+                meta_path = run_dir.parent.parent / "meta.json"
+                if not meta_path.exists():
+                    continue
+                data = json.loads(meta_path.read_text(encoding="utf-8"))
+                return float(data.get("context_pct", 0.0) or 0.0)
+        except Exception:
+            logger.exception("failed to read persisted context_pct for run %s", runs_id)
+        return 0.0
 
     async def _permission_respond_handler(
         self, params: dict[str, Any]
@@ -242,6 +264,12 @@ class CoreApp:
         session_root = Path("~/.crispcode/session").expanduser()
         store = SessionStore(session_root)
         compact_provider = AnthropicProvider(self._config.llm.default_model)
+
+        self._mcp_manager = McpServerManager()
+        if self._config.mcp.servers:
+            logger.info("mcp: starting %d server(s)", len(self._config.mcp.servers))
+            await self._mcp_manager.start_all(self._config.mcp.servers)
+
         self._sessions = SessionManager(
             store,
             runner_factory=lambda: AgentRunner(
@@ -249,6 +277,7 @@ class CoreApp:
                 bus=self._bus,
                 trace=self._trace,
                 permission_manager=self._permission_manager,
+                mcp_manager=self._mcp_manager,
             ),
             bus=self._bus,
             provider=compact_provider,
@@ -285,6 +314,9 @@ class CoreApp:
 
         if self._running_runs:
             await asyncio.gather(*self._running_runs, return_exceptions=True)
+
+        if self._mcp_manager is not None:
+            await self._mcp_manager.stop_all()
 
         await server.stop()
 

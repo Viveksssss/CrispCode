@@ -15,7 +15,7 @@ class AgentProfile:
 
 
 class AgentProfileLoader:
-    _BUILTIN_DIR = Path(__file__).parent() / "builtin"
+    _BUILTIN_DIR = Path(__file__).parent / "builtin"
 
     def load(self, name: str) -> AgentProfile | None:
         for path in self._search_paths(name):

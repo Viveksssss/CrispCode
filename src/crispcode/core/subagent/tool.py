@@ -145,8 +145,8 @@ class SpawnAgentTool(BaseTool):
 
         await self._parent_bus.publish(
             SubagentStartedEvent(
-                run_id=child_runs_id,
-                parent_run_id=self._parent_run_id,
+                runs_id=child_runs_id,
+                parent_runs_id=self._parent_runs_id,
                 description=p.description,
                 ts=_now(),
             )
@@ -169,8 +169,8 @@ class SpawnAgentTool(BaseTool):
             self._task_registry.register(child_runs_id, task, child_context)
             return ToolResult(
                 content=(
-                    f"Subagent started in background. run_id={child_runs_id}. "
-                    f"Use agent_result(run_id='{child_runs_id}') to retrieve result."
+                    f"Subagent started in background. runs_id={child_runs_id}. "
+                    f"Use agent_result(runs_id='{child_runs_id}') to retrieve result."
                 )
             )
 
@@ -181,7 +181,7 @@ class SpawnAgentTool(BaseTool):
         await self._parent_bus.publish(
             SubagentFinishedEvent(
                 runs_id=child_runs_id,
-                parent_run_id=self._parent_runs_id,
+                parent_runs_id=self._parent_runs_id,
                 status=child_context.status,
                 ts=_now(),
             )
@@ -294,12 +294,12 @@ class AgentResultTool(BaseTool):
     input_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
-            "run_id": {
+            "runs_id": {
                 "type": "string",
-                "description": "The run_id returned by spawn_agent(run_in_background=true)",
+                "description": "The runs_id returned by spawn_agent(run_in_background=true)",
             },
         },
-        "required": ["run_id"],
+        "required": ["runs_id"],
     }
     params_model = AgentResultParams
 
@@ -307,7 +307,7 @@ class AgentResultTool(BaseTool):
     def __init__(self, task_registry: BackgroundTaskRegistry) -> None:
         self._task_registry = task_registry
 
-    # 查询指定 run_id 的后台任务状态，返回结果或错误
+    # 查询指定 runs_id 的后台任务状态，返回结果或错误
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         p = AgentResultParams.model_validate(params)
         entry = self._task_registry.get(p.runs_id)

@@ -19,7 +19,7 @@ _RESET = "\033[0m"
 _BOLD = "\033[1m"
 
 
-# kama trace 子命令：从 daemon.jsonl 读取并展示 trace 记录
+# crisp trace 子命令：从 daemon.jsonl 读取并展示 trace 记录
 def cmd_trace(
     runs_id: str | None,
     config: CrispConfig,

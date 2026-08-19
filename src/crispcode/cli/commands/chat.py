@@ -126,7 +126,7 @@ async def _chat_async(config: CrispConfig) -> int:
     return 0
 
 
-# 执行 kama chat 命令
+# 执行 crisp chat 命令
 def cmd_chat(config: CrispConfig) -> None:
     try:
         exit_code = asyncio.run(_chat_async(config))

@@ -34,6 +34,8 @@ class EventSubscribeCommand(BaseModel):
 class EventSubscribeResult(BaseModel):
     subscription_id: str
     replayed_count: int = 0
+    # 重放时该 run 所属 session 已持久化的 context_pct，用于初始化 TUI 常驻 ctx 条
+    context_pct: float = 0.0
 
 
 class SessionCreateCommand(BaseModel):

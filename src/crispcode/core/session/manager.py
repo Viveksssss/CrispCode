@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from crispcode.core.bus.envelope import HandleError
 from crispcode.core.bus.events import (
+    LlmUsageEvent,
     SessionClosedEvent,
     SessionCreatedEvent,
     SessionMessageReceivedEvent,
@@ -50,6 +51,22 @@ class SessionManager:
         self._sessions: dict[str, Session] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._skill_loader = SkillLoader()
+        # runs_id -> session_id 映射：把 llm.usage 的 context 占用率落盘到对应 session 的 meta.json
+        self._run_sessions: dict[str, str] = {}
+        self._bus.subscribe(self._on_bus_event)
+
+    async def _on_bus_event(self, event: Any) -> None:
+        """订阅 LlmUsageEvent，把每个 run 最新的 context_pct 持久化到所属 session 的 meta.json"""
+        if not isinstance(event, LlmUsageEvent):
+            return
+        sid = self._run_sessions.get(event.runs_id)
+        if sid is None:
+            return
+        session = self._sessions.get(sid)
+        if session is None:
+            return
+        session.context_pct = event.context_pct
+        self._store.write_meta(session)
 
     async def create(self, mode: SessionMode, title: str = "") -> Session:
         """创建新 session 并写入 meta.json"""
@@ -96,6 +113,8 @@ class SessionManager:
             session.runs_ids.append(runs_id)
             session.updated_at = _now()
             self._store.write_meta(session)
+            # 记录 run 归属的 session，供 LlmUsageEvent 持久化 context_pct 到对应 meta.json
+            self._run_sessions[runs_id] = sid
 
             goal = content
             system_prompt_override: str | None = None

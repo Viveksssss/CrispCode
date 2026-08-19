@@ -62,7 +62,7 @@ class McpClient:
         self._writer = self._proc.stdin
         self._transport = "stdio"
         self._stderr_task = asyncio.create_task(self._drain_stderr())
-        await self._initialize()
+        await self.initialize()
 
     async def connect_tcp(self, host: str, port: int) -> None:
         """通过 TCP 连接到 MCP server 并完成 initialize 握手"""
@@ -71,7 +71,7 @@ class McpClient:
         )
         self._writer = tcp_writer
         self._transport = "tcp"
-        await self._initialize()
+        await self.initialize()
 
     async def initialize(self) -> None:
         """发送 initialize 请求完成 MCP 握手"""
@@ -231,3 +231,5 @@ class McpClient:
             line = data.decode(errors="replace").strip()
             if line:
                 return line
+
+

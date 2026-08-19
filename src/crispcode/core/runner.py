@@ -15,6 +15,7 @@ from crispcode.core.events.bus import EventBus, EventHandler
 from crispcode.core.events.writer import EventWriter
 from crispcode.core.llm.provider import AnthropicProvider, LLMProvider
 from crispcode.core.loop import AgentLoop
+from crispcode.core.mcp.server import McpServerManager
 from crispcode.core.memory import load_context_file
 from crispcode.core.permissions.manager import PermissionManager
 from crispcode.core.runs import (
@@ -26,6 +27,8 @@ from crispcode.core.runs import (
 )
 from crispcode.core.session.model import Session
 from crispcode.core.session.store import SessionStore
+from crispcode.core.subagent.registry import BackgroundTaskRegistry
+from crispcode.core.subagent.tool import AgentResultTool, SpawnAgentTool
 from crispcode.core.task.manager import TaskManager
 from crispcode.core.tools.builtin import (
     BashTool,
@@ -65,6 +68,7 @@ class AgentRunner:
         runs_dir: Path | None = None,
         trace: TraceWriter | None = None,
         permission_manager: PermissionManager | None = None,
+        mcp_manager: McpServerManager | None = None,
     ) -> None:
         self._config = config
         self._provider = provider
@@ -73,6 +77,9 @@ class AgentRunner:
         self._runs_dir = runs_dir or RUNS_DIR
         self._trace = trace
         self._permission_manager = permission_manager
+        self._mcp_manager = mcp_manager
+        # 跨 run 共享的后台 subagent 任务注册表
+        self._task_registry = BackgroundTaskRegistry()
 
     def _build_registry(
         self,
@@ -81,19 +88,59 @@ class AgentRunner:
         session: Session | None = None,
         store: SessionStore | None = None,
         runs_id: str | None = None,
+        provider: LLMProvider | None = None,
+        bus: EventBus | None = None,
+        child_runs_dir: Path | None = None,
+        session_id: str = "",
+        tool_whitelist: list[str] | None = None,
     ) -> ToolRegistry:
-        registry = ToolRegistry()
-        registry.register(ReadFileTool())
-        registry.register(ListDirTool())
-        registry.register(WriteFileTool())
-        registry.register(BashTool())
-        registry.register(TaskCreateTool(task_manager))
-        registry.register(TaskUpdateTool(task_manager))
-        registry.register(TaskListTool(task_manager))
-        registry.register(TaskGetTool(task_manager))
-        if session is not None and store is not None and runs_id is not None:
-            registry.register(NoteSaveTool(store, session.id, runs_id))
+        """构建工具注册表，注入 TaskManager（任务工具共享同一实例）；可选注入 SpawnAgentTool"""
+        allowed: set[str] | None = set(tool_whitelist) if tool_whitelist else None
 
+        def _ok(name: str) -> bool:
+            return allowed is None or name in allowed
+
+        registry = ToolRegistry()
+        for t in [ReadFileTool(), BashTool(), WriteFileTool(), ListDirTool()]:
+            if _ok(t.name):
+                registry.register(t)
+
+        for t in [
+            TaskCreateTool(task_manager),
+            TaskUpdateTool(task_manager),
+            TaskListTool(task_manager),
+            TaskGetTool(task_manager),
+        ]:
+            if _ok(t.name):
+                registry.register(t)
+
+        if session is not None and store is not None and runs_id is not None:
+            note_tool = NoteSaveTool(store, session.id, runs_id)
+            if _ok(note_tool.name):
+                registry.register(note_tool)
+
+        if provider is not None and bus is not None and runs_id is not None:
+            runs_dir = child_runs_dir or self._runs_dir
+            if _ok("spwan_agent"):
+                registry.register(
+                    SpawnAgentTool(
+                        provider=provider,
+                        parent_bus=bus,
+                        parent_runs_id=runs_id,
+                        permission_manager=self._permission_manager,
+                        max_steps=self._config.agent.max_steps,
+                        task_registry=self._task_registry,
+                        runs_dir=runs_dir,
+                        session_id=session_id,
+                        depth=0,
+                    )
+                )
+            if _ok("agent_result"):
+                registry.register(AgentResultTool(self._task_registry))
+        if self._mcp_manager is not None:
+            for mcp_tool in self._mcp_manager.get_tools():
+                if _ok(mcp_tool.name):
+                    registry.register(mcp_tool)
         return registry
 
     async def run(self, goal: str, *, runs_id: str | None = None) -> None:
@@ -116,7 +163,7 @@ class AgentRunner:
             history = store.read_messages(session.id)
             notes = store.read_notes(session.id)
         else:
-            run_path = run_dir_old(runs_id).parent
+            run_path = self._runs_dir / runs_id
             history = [{"role": "user", "content": goal}]
             notes = ""
         run_path.mkdir(parents=True, exist_ok=True)
@@ -152,13 +199,6 @@ class AgentRunner:
                 )
             )
 
-            registry = self._build_registry(
-                task_manager=task_manager,
-                session=session,
-                store=store,
-                runs_id=runs_id,
-            )
-
             cancelled = False
 
             try:
@@ -178,6 +218,23 @@ class AgentRunner:
                     else run_path
                 )
                 session_id_str = session.id if session is not None else ""
+                child_runs_dir = (
+                    store.runs_dir(session.id)
+                    if session is not None and store is not None
+                    else self._runs_dir
+                )
+                registry = self._build_registry(
+                    task_manager=task_manager,
+                    session=session,
+                    store=store,
+                    runs_id=runs_id,
+                    provider=provider,
+                    bus=bus,
+                    child_runs_dir=child_runs_dir,
+                    session_id=session_id_str,
+                    tool_whitelist=tool_whitelist,
+                )
+
                 compactor = Compactor(bus, session_dir, session_id_str)
 
                 loop = AgentLoop(

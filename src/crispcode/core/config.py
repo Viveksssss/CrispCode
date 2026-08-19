@@ -13,7 +13,7 @@ _DEFAULT_LOG_LEVEL = "INFO"
 _DEFAULT_LOG_FILE = "~/.crispcode/logs/core.log"
 _DEFAULT_LOG_FORMAT = "text"
 _DEFAULT_CONFIG_PATH = "~/.crispcode/config.toml"
-_DEFAULT_MAX_STEPS = 20
+_DEFAULT_MAX_STEPS = 30
 _DEFAULT_MODEL = "deepseek-v4-flash"
 _DEFAULT_TRACE_FILE = "~/.crispcode/trace/daemon.log"
 
