@@ -129,8 +129,13 @@ class SpawnAgentTool(BaseTool):
 
         child_bus = EventBus()
 
+        # 只把子 agent 的摘要事件桥接到父 bus，避免低层事件（llm.token/thinking/token/tool 等）
+        # 混入父 TUI 的渲染流。
+        _SUMMARY_EVENTS = (SubagentStartedEvent, SubagentFinishedEvent)
+
         async def _bridge(event: BaseModel) -> None:
-            await self._parent_bus.publish(event)
+            if isinstance(event, _SUMMARY_EVENTS):
+                await self._parent_bus.publish(event)
 
         child_bus.subscribe(_bridge)
 
@@ -153,7 +158,7 @@ class SpawnAgentTool(BaseTool):
         )
 
         child_runs_path = self._runs_dir / child_runs_id
-        child_runs_path.mkdir(parent=True, exist_ok=True)
+        child_runs_path.mkdir(parents=True, exist_ok=True)
 
         if p.runs_in_background:
             task: asyncio.Task[None] = asyncio.create_task(
@@ -210,7 +215,7 @@ class SpawnAgentTool(BaseTool):
         runs_id: str,
     ) -> None:
         async with EventWriter(runs_path / "events.jsonl") as writer:
-            writer.subscribe(writer)
+            writer.subscribe(bus)
             await loop.run(context)
 
         await self._parent_bus.publish(

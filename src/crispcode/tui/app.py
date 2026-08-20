@@ -248,11 +248,15 @@ class ToolCallBlock(Static):
         else:
             summary.update("")
             detail = self.query_one(".detail", Static)
-            detail.update(
-                f"[dim]params:[/dim]\n{escape(self._params_full)}\n"
-                f"[dim]output:[/dim]\n\n{escape(self._output)}\n"
-                f"[dim]elapsed:[/dim] {self._elapsed_ms}ms"
-            )
+            from rich.text import Text
+            detail_text = Text()
+            detail_text.append("params:\n", style="dim")
+            detail_text.append(self._params_full + "\n")
+            detail_text.append("output:\n\n", style="dim")
+            detail_text.append(self._output + "\n")
+            detail_text.append("elapsed: ", style="dim")
+            detail_text.append(f"{self._elapsed_ms}ms", style="dim")
+            detail.update(detail_text)
 
             self.add_class("expanded")
 
